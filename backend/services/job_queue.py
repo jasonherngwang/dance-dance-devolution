@@ -18,6 +18,7 @@ from services import ytdlp_service
 from services.ytdlp_service import ExtractionError
 from services import librosa_service
 from services.librosa_service import AnalysisError
+from services import segment_service
 
 # In-memory job store (job_id → JobStatus)
 job_store: Dict[str, JobStatus] = {}
@@ -61,8 +62,16 @@ async def _run_pipeline(job_id: str, url: str) -> None:
             job.message = f"Analysed audio — {analysis.bpm:.0f} BPM detected"
 
             # ── Stage 3: Select best segment ──────────────────────────────────
-            # TODO (Issue 27): segment = segment_service.select(analysis)
-            # job.progress = 75
+            job.state = JobState.analyzing
+            job.progress = 65
+            job.message = "Selecting best segment…"
+
+            segment = segment_service.select_best_segment(analysis)
+            job.progress = 75
+            job.message = (
+                f"Segment selected: {segment.start:.1f}s\u2013{segment.end:.1f}s "
+                f"({segment.duration:.0f}s)"
+            )
 
             # ── Stage 4: Generate chart ───────────────────────────────────────
             # TODO (Issue 28): chart_data = chart_service.generate(analysis, segment)
@@ -72,10 +81,10 @@ async def _run_pipeline(job_id: str, url: str) -> None:
             # job.progress = 100
             # job.message = "Chart ready!"
 
-            # Stages 3-4 not yet implemented — mark as error until Issues 27-28 land
+            # Stage 4 not yet implemented — mark as error until Issue 28 lands
             job.state = JobState.error
-            job.progress = 60
-            job.message = "Audio analysed; chart generation pending (Issues 27-28)"
+            job.progress = 75
+            job.message = "Segment selected; chart generation pending (Issue 28)"
             job.error = "chart_generation_not_implemented"
 
         except ExtractionError as exc:

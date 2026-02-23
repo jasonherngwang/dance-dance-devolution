@@ -22,6 +22,7 @@ export default function HomeScreen() {
   // Cache: chart_url → ChartData
   const [charts, setCharts] = useState<Record<string, ChartData>>({});
   const [ytUrl, setYtUrl] = useState('');
+  const [ytUrlError, setYtUrlError] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Load catalog on mount, then pre-fetch each song's chart
@@ -51,7 +52,15 @@ export default function HomeScreen() {
 
   const handleAnalyze = useCallback(() => {
     const url = ytUrl.trim();
-    if (!url) return;
+    if (!url) {
+      setYtUrlError('Please enter a YouTube URL.');
+      return;
+    }
+    if (!isValidYouTubeUrl(url)) {
+      setYtUrlError('Please enter a valid YouTube URL (e.g. youtube.com/watch?v=... or youtu.be/...)');
+      return;
+    }
+    setYtUrlError('');
     navigate('/loading', { state: { ytUrl: url } });
   }, [ytUrl, navigate]);
 
@@ -248,19 +257,23 @@ export default function HomeScreen() {
             <input
               type="url"
               value={ytUrl}
-              onChange={e => setYtUrl(e.target.value)}
+              onChange={e => { setYtUrl(e.target.value); if (ytUrlError) setYtUrlError(''); }}
               onKeyDown={e => { if (e.key === 'Enter') handleAnalyze(); }}
               placeholder="https://youtube.com/watch?v=..."
               className="flex-1 px-4 py-3 text-sm outline-none"
               style={{
                 background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(255,255,255,0.12)',
+                border: `1px solid ${ytUrlError ? 'rgba(255,80,80,0.5)' : 'rgba(255,255,255,0.12)'}`,
                 color: 'rgba(255,255,255,0.9)',
                 fontFamily: 'inherit',
                 transition: 'border-color 0.15s',
               }}
-              onFocus={e => { (e.target as HTMLInputElement).style.borderColor = 'rgba(0,255,255,0.38)'; }}
-              onBlur={e  => { (e.target as HTMLInputElement).style.borderColor = 'rgba(255,255,255,0.12)'; }}
+              onFocus={e => {
+                (e.target as HTMLInputElement).style.borderColor = ytUrlError ? 'rgba(255,80,80,0.7)' : 'rgba(0,255,255,0.38)';
+              }}
+              onBlur={e  => {
+                (e.target as HTMLInputElement).style.borderColor = ytUrlError ? 'rgba(255,80,80,0.5)' : 'rgba(255,255,255,0.12)';
+              }}
             />
             <button
               className="px-5 py-3 font-bold tracking-widest text-sm whitespace-nowrap transition-all duration-150"
@@ -275,9 +288,15 @@ export default function HomeScreen() {
               ANALYZE
             </button>
           </div>
-          <p className="mt-2 text-xs" style={{ color: 'rgba(255,255,255,0.24)' }}>
-            AI-powered chart generation&nbsp;·&nbsp;~30 seconds&nbsp;·&nbsp;full song catalog supported
-          </p>
+          {ytUrlError ? (
+            <p className="mt-2 text-xs" style={{ color: '#ff5555' }}>
+              {ytUrlError}
+            </p>
+          ) : (
+            <p className="mt-2 text-xs" style={{ color: 'rgba(255,255,255,0.24)' }}>
+              AI-powered chart generation&nbsp;·&nbsp;~30 seconds&nbsp;·&nbsp;full song catalog supported
+            </p>
+          )}
         </div>
 
       </div>
@@ -294,6 +313,28 @@ export default function HomeScreen() {
       </div>
     </div>
   );
+}
+
+// ── Utility ────────────────────────────────────────────────────────────────
+
+function isValidYouTubeUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, '');
+    if (host === 'youtube.com') {
+      return (
+        (u.pathname === '/watch' && !!u.searchParams.get('v')) ||
+        u.pathname.startsWith('/shorts/') ||
+        u.pathname.startsWith('/embed/')
+      );
+    }
+    if (host === 'youtu.be') {
+      return u.pathname.length > 1;
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 // ── Small reusable sub-components ──────────────────────────────────────────

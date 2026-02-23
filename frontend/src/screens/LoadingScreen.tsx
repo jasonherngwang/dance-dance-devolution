@@ -102,6 +102,8 @@ export default function LoadingScreen() {
 
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
   const [error, setError]         = useState<string | null>(null);
+  const [networkUnreachable, setNetworkUnreachable] = useState(false);
+  const [timedOut, setTimedOut]   = useState(false);
   const [showBehind, setShowBehind] = useState(false);
   const [featuredSong, setFeaturedSong] = useState<CatalogEntry | null>(null);
   const [featuredChart, setFeaturedChart] = useState<ChartData | null>(null);
@@ -111,6 +113,8 @@ export default function LoadingScreen() {
   const jobIdRef                  = useRef<string | null>(null);
   // Set to true when user clicks "Play while you wait" so cleanup keeps polling alive
   const isPlayingWhileWaitingRef  = useRef(false);
+  // Track last progress value + timestamp for timeout detection
+  const lastProgressRef           = useRef<{ value: number; time: number }>({ value: 0, time: Date.now() });
 
   // Load featured song for "play while you wait"
   useEffect(() => {
@@ -135,6 +139,15 @@ export default function LoadingScreen() {
     }
 
     let cancelled = false;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+    // Timeout: if no completion after 3 minutes, show warning
+    const ANALYSIS_TIMEOUT_MS = 3 * 60 * 1000;
+    timeoutHandle = setTimeout(() => {
+      if (!cancelled && !navigatedRef.current) {
+        setTimedOut(true);
+      }
+    }, ANALYSIS_TIMEOUT_MS);
 
     fetch('/api/analyze', {
       method: 'POST',
@@ -142,6 +155,10 @@ export default function LoadingScreen() {
       body: JSON.stringify({ url: ytUrl }),
     })
       .then(async res => {
+        if (res.status === 429) {
+          const body = await res.json().catch(() => ({ detail: 'Rate limit exceeded' }));
+          throw new Error(body.detail ?? 'Too many requests. Please wait a moment before trying again.');
+        }
         if (!res.ok) {
           const body = await res.json().catch(() => ({ detail: 'Server error' }));
           throw new Error(body.detail ?? `HTTP ${res.status}`);
@@ -156,11 +173,21 @@ export default function LoadingScreen() {
           job_id,
           // onUpdate
           (status) => {
-            if (!cancelled) setJobStatus(status);
+            if (!cancelled) {
+              setJobStatus(status);
+              setNetworkUnreachable(false);
+              // Update last-progress tracker for timeout detection
+              const p = status.progress ?? 0;
+              if (p !== lastProgressRef.current.value) {
+                lastProgressRef.current = { value: p, time: Date.now() };
+              }
+            }
           },
           // onComplete
           (status) => {
             if (cancelled || navigatedRef.current) return;
+            if (timeoutHandle) { clearTimeout(timeoutHandle); timeoutHandle = null; }
+            setTimedOut(false);
             // Backend returns 'state'; fallback to 'status' for legacy compatibility
             const finalState = status.state ?? status.status;
             if (finalState === 'error') {
@@ -174,14 +201,28 @@ export default function LoadingScreen() {
             // Fetch the chart using video_id (not job_id)
             fetchChartAndNavigate(status.video_id);
           },
+          // onNetworkError
+          () => {
+            if (!cancelled) setNetworkUnreachable(true);
+          },
         );
       })
       .catch(err => {
-        if (!cancelled) setError(String(err.message ?? err));
+        if (!cancelled) {
+          if (timeoutHandle) { clearTimeout(timeoutHandle); timeoutHandle = null; }
+          // Distinguish network errors from server errors
+          const message = String(err.message ?? err);
+          if (message === 'Failed to fetch' || message.includes('NetworkError')) {
+            setNetworkUnreachable(true);
+          } else {
+            setError(message);
+          }
+        }
       });
 
     return () => {
       cancelled = true;
+      if (timeoutHandle) clearTimeout(timeoutHandle);
       // Only stop polling if the user didn't opt to play while waiting.
       // When playing while waiting, the jobStore keeps polling globally.
       if (jobIdRef.current && !isPlayingWhileWaitingRef.current) {
@@ -305,7 +346,69 @@ export default function LoadingScreen() {
           </div>
         )}
 
-        {!error && (
+        {/* ── Network unreachable banner ─────────────────────────────────── */}
+        {!error && networkUnreachable && (
+          <div
+            className="mt-8 w-full p-5 text-center"
+            style={{
+              border: '1px solid rgba(255,136,0,0.4)',
+              background: 'rgba(255,136,0,0.06)',
+            }}
+          >
+            <p className="text-sm font-bold mb-1" style={{ color: '#ff8800' }}>
+              Server Unavailable
+            </p>
+            <p className="text-xs mb-4" style={{ color: 'rgba(255,255,255,0.5)' }}>
+              Cannot reach the server. Retrying automatically — check your connection or try again.
+            </p>
+            <div className="flex justify-center gap-3">
+              <button
+                className="px-5 py-2 text-xs tracking-widest transition-colors"
+                style={{ border: '1px solid rgba(255,136,0,0.4)', color: '#ff8800' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,136,0,0.1)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                onClick={() => { setNetworkUnreachable(false); navigate('/loading', { state: { ytUrl } }); }}
+              >
+                RETRY
+              </button>
+              <button
+                className="px-5 py-2 text-xs tracking-widest transition-colors"
+                style={{ border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.45)' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#00ffff'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,255,255,0.4)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.45)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.15)'; }}
+                onClick={() => navigate('/')}
+              >
+                GO BACK
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Timeout warning (still polling, just slow) ─────────────────── */}
+        {!error && !networkUnreachable && timedOut && (
+          <div
+            className="mt-4 w-full px-4 py-3"
+            style={{
+              border: '1px solid rgba(255,136,0,0.3)',
+              background: 'rgba(255,136,0,0.05)',
+            }}
+          >
+            <p className="text-xs" style={{ color: '#ff8800' }}>
+              ⏳ Taking longer than expected. The server may be under load — analysis is still in progress.
+            </p>
+            <button
+              className="mt-2 text-xs underline transition-colors"
+              style={{ color: 'rgba(255,255,255,0.4)' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#00ffff'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.4)'; }}
+              onClick={() => { setTimedOut(false); navigate('/loading', { state: { ytUrl } }); }}
+            >
+              Retry with a fresh request
+            </button>
+          </div>
+        )}
+
+        {!error && !networkUnreachable && (
           <>
             {/* ── Progress bar ──────────────────────────────────────────── */}
             <div className="mt-10 w-full">

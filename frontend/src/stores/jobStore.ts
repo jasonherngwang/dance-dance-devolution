@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import type { JobStatus } from '../types';
 
 const POLL_INTERVAL_MS = 2000;
+// Number of consecutive network failures before notifying the caller
+const NETWORK_ERROR_THRESHOLD = 5;
 
 export interface PendingJobInfo {
   /** Song title extracted during analysis, if available. */
@@ -43,11 +45,13 @@ interface JobStore {
    * Start polling GET /api/status/:jobId every 2 seconds.
    * Stops automatically when the job is complete or errored.
    * onComplete is called with the final JobStatus when done.
+   * onNetworkError is called after NETWORK_ERROR_THRESHOLD consecutive failures.
    */
   startPolling: (
     jobId: string,
     onUpdate?: (status: JobStatus) => void,
     onComplete?: (status: JobStatus) => void,
+    onNetworkError?: () => void,
   ) => void;
 
   /** Stop polling for a specific job (e.g., if user cancels). */
@@ -89,16 +93,28 @@ export const useJobStore = create<JobStore>((set, get) => ({
     });
   },
 
-  startPolling: (jobId, onUpdate, onComplete) => {
+  startPolling: (jobId, onUpdate, onComplete, onNetworkError) => {
     const { _pollers, stopPolling } = get();
 
     // Don't double-start
     if (_pollers.has(jobId)) return;
 
+    let consecutiveErrors = 0;
+    let networkErrorNotified = false;
+
     const handle = setInterval(async () => {
       try {
         const res = await fetch(`/api/status/${jobId}`);
-        if (!res.ok) return;
+        if (!res.ok) {
+          // Non-2xx from a reachable server — not a network error, keep waiting
+          consecutiveErrors = 0;
+          networkErrorNotified = false;
+          return;
+        }
+
+        // Successful fetch — reset error counter
+        consecutiveErrors = 0;
+        networkErrorNotified = false;
 
         const status: JobStatus = await res.json();
         get().upsertJob(status);
@@ -131,7 +147,12 @@ export const useJobStore = create<JobStore>((set, get) => ({
           }
         }
       } catch {
-        // Network error — keep retrying until explicitly stopped
+        // Network error (fetch threw — server unreachable)
+        consecutiveErrors += 1;
+        if (!networkErrorNotified && consecutiveErrors >= NETWORK_ERROR_THRESHOLD) {
+          networkErrorNotified = true;
+          onNetworkError?.();
+        }
       }
     }, POLL_INTERVAL_MS);
 

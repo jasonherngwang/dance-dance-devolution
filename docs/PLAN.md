@@ -803,7 +803,7 @@ Acceptance criteria:
 
 **Issue 37**
 
-Status: READY
+Status: COMPLETE
 
 Task: Error handling and edge cases
 
@@ -816,10 +816,10 @@ Handle failure modes gracefully:
 - Rate limiting on `/api/analyze` (5/min per IP on backend)
 
 Acceptance criteria:
-- [ ] Invalid URLs show a user-friendly error
-- [ ] Backend failures don't crash the frontend
-- [ ] Rate limit errors are communicated clearly
-- [ ] Retry options are available where appropriate
+- [x] Invalid URLs show a user-friendly error
+- [x] Backend failures don't crash the frontend
+- [x] Rate limit errors are communicated clearly
+- [x] Retry options are available where appropriate
 
 ---
 

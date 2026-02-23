@@ -6,8 +6,14 @@ import { COLUMN_X, RECEPTOR_Y } from './ReceptorRenderer';
 // Pool sizes
 // ---------------------------------------------------------------------------
 
-const PARTICLE_POOL = 200; // shared pool for all in-flight particles
+const PARTICLE_POOL = 240; // shared pool for all in-flight particles (increased for hype mode)
 const MISS_X_POOL = 8;     // pool of pre-allocated red-X stamps
+
+// ---------------------------------------------------------------------------
+// Hype level particle multipliers: 0=1×, 1=1.25×, 2=1.5×, 3=2×
+// ---------------------------------------------------------------------------
+
+const HYPE_PARTICLE_MULT = [1.0, 1.25, 1.5, 2.0] as const;
 
 // ---------------------------------------------------------------------------
 // Color palettes (additive blending: color intensity encodes brightness)
@@ -89,6 +95,9 @@ export class HitEffectRenderer {
   // Screen shake state
   private shakeFrames = 0;
 
+  // Current hype level (0–3) set externally to scale particle counts
+  private _hypeLevel: 0 | 1 | 2 | 3 = 0;
+
   // Scratch objects — reused every frame to avoid GC pressure
   private readonly _pos   = new THREE.Vector3();
   private readonly _quat  = new THREE.Quaternion(); // identity
@@ -158,18 +167,34 @@ export class HitEffectRenderer {
   // ---------------------------------------------------------------------------
 
   /**
+   * Set the current hype level (0–3) to scale particle counts.
+   * Call this whenever the player's combo crosses a threshold.
+   *   0 = baseline (< 10 combo)
+   *   1 = 10+ combo  → 1.25× particles
+   *   2 = 25+ combo  → 1.5×  particles
+   *   3 = 50+ combo  → 2×    particles
+   */
+  setHypeLevel(level: 0 | 1 | 2 | 3): void {
+    this._hypeLevel = level;
+  }
+
+  /**
    * Trigger a hit effect at the receptor for the given direction and judgment.
+   * Particle counts are scaled by the current hype level.
    * Safe to call at any time (including from inside the animation loop).
    */
   triggerHitEffect(direction: Direction, judgment: JudgmentType): void {
     const x = COLUMN_X[direction];
     const y = RECEPTOR_Y;
+    const mult = HYPE_PARTICLE_MULT[this._hypeLevel];
 
     if (judgment === 'perfect') {
-      const count = 80 + Math.floor(Math.random() * 41); // 80–120
+      const base = 80 + Math.floor(Math.random() * 41); // 80–120 base
+      const count = Math.min(Math.round(base * mult), PARTICLE_POOL);
       this.spawnBurst(x, y, count, PERFECT_COLORS, 4.5, 0.55);
     } else if (judgment === 'great') {
-      this.spawnBurst(x, y, 40, GREAT_COLORS, 3.5, 0.45);
+      const count = Math.min(Math.round(40 * mult), PARTICLE_POOL);
+      this.spawnBurst(x, y, count, GREAT_COLORS, 3.5, 0.45);
     } else {
       // miss
       this.spawnMissX(x, y);

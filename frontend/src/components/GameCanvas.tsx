@@ -7,6 +7,8 @@ import { HitEffectRenderer } from '@/rendering/HitEffectRenderer';
 import { TimingEngine } from '@/engine/TimingEngine';
 import { InputHandler } from '@/engine/InputHandler';
 import { JudgmentDisplay } from './JudgmentDisplay';
+import { ComboDisplay, getHypeLevel } from './ComboDisplay';
+import { HypeOverlay } from './HypeOverlay';
 import type { Direction, JudgmentType, Note } from '@/types';
 
 function isWebGPUAvailable(): boolean {
@@ -42,12 +44,20 @@ function buildDemoNotes(): Note[] {
 
 const DEMO_NOTES = buildDemoNotes();
 
+// Combo milestones that trigger chromatic-aberration flash
+const COMBO_MILESTONES = [25, 50, 100];
+
 export function GameCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
   const webGPUSupported = isWebGPUAvailable();
 
   // Stable ref for the judgment text trigger — set by JudgmentDisplay on mount
   const judgmentTriggerRef = useRef<((j: JudgmentType, d: Direction) => void) | null>(null);
+
+  // Combo display + hype overlay callbacks (set by child components on mount)
+  const comboDisplayFnRef = useRef<((combo: number, isBreak: boolean) => void) | null>(null);
+  const hypeOverlayFnRef  = useRef<((combo: number, isBreak: boolean) => void) | null>(null);
+  const chromaticTriggerRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!webGPUSupported || !containerRef.current) return;
@@ -107,11 +117,6 @@ export function GameCanvas() {
     scrollManager.scrollMultiplier = 2;
     scrollManager.loadChart(DEMO_NOTES);
 
-    // Report auto-misses to the timing engine so notes aren't re-judged
-    scrollManager.onMiss = (noteIndex, dir) => {
-      timingEngine.markJudged(noteIndex, dir);
-    };
-
     // -------------------------------------------------------------------------
     // Receptor system (Issue 6)
     // -------------------------------------------------------------------------
@@ -121,6 +126,34 @@ export function GameCanvas() {
     // Hit effects + particles (Issue 12)
     // -------------------------------------------------------------------------
     const hitEffects = new HitEffectRenderer(scene);
+
+    // -------------------------------------------------------------------------
+    // Combo tracking (Issue 13)
+    // -------------------------------------------------------------------------
+    const comboRef = { current: 0 };
+
+    /** Notify both combo-display and hype-overlay of a combo change. */
+    function notifyCombo(combo: number, isBreak: boolean) {
+      comboDisplayFnRef.current?.(combo, isBreak);
+      hypeOverlayFnRef.current?.(combo, isBreak);
+    }
+
+    /** Reset combo for demo-loop restart (no break flash). */
+    function resetCombo() {
+      comboRef.current = 0;
+      notifyCombo(0, false);
+      hitEffects.setHypeLevel(0);
+    }
+
+    // Auto-miss → break combo (fires from inside the animation loop via onMiss)
+    scrollManager.onMiss = (noteIndex, dir) => {
+      timingEngine.markJudged(noteIndex, dir);
+      if (comboRef.current > 0) {
+        comboRef.current = 0;
+        notifyCombo(0, true);
+        hitEffects.setHypeLevel(0);
+      }
+    };
 
     // -------------------------------------------------------------------------
     // Keyboard input (Issue 9) — wired into timing engine + hit effects
@@ -133,6 +166,35 @@ export function GameCanvas() {
       if (!result) return; // no note in window — empty press
 
       const { judgment } = result;
+
+      // --- Combo tracking ---
+      const prevCombo = comboRef.current;
+      if (judgment === 'miss') {
+        comboRef.current = 0;
+        notifyCombo(0, true);
+        hitEffects.setHypeLevel(0);
+      } else {
+        comboRef.current += 1;
+        const newCombo = comboRef.current;
+        notifyCombo(newCombo, false);
+
+        // Update particle multiplier based on new hype level
+        const newLevel = getHypeLevel(newCombo);
+        const prevLevel = getHypeLevel(prevCombo);
+        if (newLevel !== prevLevel) {
+          hitEffects.setHypeLevel(newLevel);
+        }
+
+        // Fire chromatic-aberration flash on milestone crossings
+        for (const milestone of COMBO_MILESTONES) {
+          if (prevCombo < milestone && newCombo >= milestone) {
+            chromaticTriggerRef.current?.();
+            break;
+          }
+        }
+      }
+
+      // Visual feedback
       hitEffects.triggerHitEffect(direction, judgment);
       receptorRenderer.flashReceptor(direction, judgment);
       judgmentTriggerRef.current?.(judgment, direction);
@@ -153,6 +215,7 @@ export function GameCanvas() {
 
       // Demo loop: restart when we reach the end of the chart
       if (songTime >= DEMO_DURATION) {
+        resetCombo();
         timingEngine.play(0);
         timingEngine.resetJudgments();
         scrollManager.loadChart(DEMO_NOTES);
@@ -213,7 +276,16 @@ export function GameCanvas() {
     <div className="relative h-full w-full overflow-hidden">
       {/* Three.js canvas container */}
       <div ref={containerRef} className="absolute inset-0" />
-      {/* HTML judgment text overlay */}
+      {/* Screen border glow + chromatic aberration (behind combo and judgment text) */}
+      <HypeOverlay
+        onRegisterUpdate={(fn) => { hypeOverlayFnRef.current = fn; }}
+        onRegisterChromatic={(fn) => { chromaticTriggerRef.current = fn; }}
+      />
+      {/* Combo counter with escalating hype visuals */}
+      <ComboDisplay
+        onRegisterUpdate={(fn) => { comboDisplayFnRef.current = fn; }}
+      />
+      {/* HTML judgment text overlay (topmost) */}
       <JudgmentDisplay
         onRegisterTrigger={(fn) => { judgmentTriggerRef.current = fn; }}
       />

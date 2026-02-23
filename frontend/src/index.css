@@ -17,6 +17,9 @@
   --color-game-border: #1a1a33;
   --color-game-text: rgba(255, 255, 255, 0.9);
   --color-game-text-dim: rgba(255, 255, 255, 0.5);
+
+  /* Arcade fonts */
+  --font-arcade: 'Orbitron', system-ui, sans-serif;
 }
 
 /* Base reset and dark theme */
@@ -32,7 +35,7 @@ html, body {
   overflow: hidden;
   background-color: var(--color-game-bg);
   color: var(--color-game-text);
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: 'Orbitron', system-ui, -apple-system, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -41,6 +44,11 @@ html, body {
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
   user-select: none;
+}
+
+/* Fallback body font for form elements and body copy (Orbitron for headings is global) */
+input, textarea, select {
+  font-family: system-ui, -apple-system, sans-serif;
 }
 
 #root {
@@ -61,7 +69,7 @@ html, body {
 
 .judgment-text {
   animation: judgment-float 0.75s ease-out forwards;
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: 'Orbitron', system-ui, sans-serif;
   font-size: clamp(1rem, 2.5vw, 1.5rem);
   font-weight: 900;
   letter-spacing: 0.08em;
@@ -165,16 +173,31 @@ html, body {
 }
 
 /* ---------------------------------------------------------------------------
-   Screen fade-in transition (Issue 19)
+   Screen fade-in transition (Issue 19, polished in Issue 38)
    --------------------------------------------------------------------------- */
 
 @keyframes screen-fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .screen-fade-in {
-  animation: screen-fade-in 0.25s ease-out forwards;
+  animation: screen-fade-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* ---------------------------------------------------------------------------
+   Neon spinner (Issue 38)
+   --------------------------------------------------------------------------- */
+
+@keyframes neon-spin {
+  to { transform: rotate(360deg); }
+}
+
+.neon-spinner {
+  border-radius: 50%;
+  border-style: solid;
+  animation: neon-spin 0.75s linear infinite;
+  will-change: transform;
 }
 
 /* Chromatic aberration flash — red left edge + blue right edge, fades out */

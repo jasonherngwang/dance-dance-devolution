@@ -1,7 +1,8 @@
 import * as THREE from 'three/webgpu';
 import type { Direction } from '@/types';
 
-export const ARROW_POOL_SIZE = 50;
+/** Pool size per direction — must be large enough for active arrows + 2 trail instances each */
+export const ARROW_POOL_SIZE = 80;
 
 const DIRECTIONS: Direction[] = ['left', 'down', 'up', 'right'];
 

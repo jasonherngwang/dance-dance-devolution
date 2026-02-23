@@ -413,12 +413,26 @@ export default function LoadingScreen() {
             {/* ── Progress bar ──────────────────────────────────────────── */}
             <div className="mt-10 w-full">
               <div className="flex justify-between items-center mb-2">
-                <span
-                  className="text-xs tracking-widest"
-                  style={{ color: '#ff8800', textShadow: '0 0 8px rgba(255,136,0,0.5)' }}
-                >
-                  {statusLabel[status] ?? 'Processing...'}
-                </span>
+                <div className="flex items-center gap-2">
+                  {/* Neon spinner while processing */}
+                  {status !== 'complete' && status !== 'error' && (
+                    <div
+                      className="neon-spinner"
+                      style={{
+                        width: 12, height: 12,
+                        borderWidth: 2,
+                        borderColor: 'rgba(255,136,0,0.2)',
+                        borderTopColor: '#ff8800',
+                      }}
+                    />
+                  )}
+                  <span
+                    className="text-xs tracking-widest"
+                    style={{ color: '#ff8800', textShadow: '0 0 8px rgba(255,136,0,0.5)' }}
+                  >
+                    {statusLabel[status] ?? 'Processing...'}
+                  </span>
+                </div>
                 <span
                   className="text-xs font-bold tabular-nums"
                   style={{ color: 'rgba(255,255,255,0.45)' }}

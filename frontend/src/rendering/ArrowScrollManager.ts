@@ -15,12 +15,22 @@ const FADE_DURATION_MS = 280;
 /** Y below which the viewport is not visible (screen bottom ≈ −5.0, buffer = 0.2) */
 const SPAWN_Y = -5.2;
 
+/** World-unit gap between each neon comet trail segment */
+const TRAIL_SPACING = 0.40;
+/** Opacity of the first (nearest) trail segment */
+const TRAIL_OPACITY_1 = 0.38;
+/** Opacity of the second (farthest) trail segment */
+const TRAIL_OPACITY_2 = 0.16;
+
 interface ActiveArrow {
   /** Index into the loaded notes array — shared by all arrows in a jump */
   noteIndex: number;
   dir: Direction;
-  /** Slot in ArrowRenderer's per-direction pool */
+  /** Slot in ArrowRenderer's per-direction pool (main arrow) */
   instanceId: number;
+  /** Neon comet trail instances (-1 if pool was exhausted at spawn) */
+  trailId1: number;
+  trailId2: number;
   /** When this arrow should reach the receptor (seconds) */
   noteTime: number;
   /** Whether a judgment (hit or miss) has been assigned */
@@ -78,6 +88,8 @@ export class ArrowScrollManager {
   reset(): void {
     for (const arrow of this.activeArrows) {
       this.renderer.release(arrow.dir, arrow.instanceId);
+      this.renderer.release(arrow.dir, arrow.trailId1);
+      this.renderer.release(arrow.dir, arrow.trailId2);
     }
     this.activeArrows = [];
     this.nextNoteIndex = 0;
@@ -145,10 +157,15 @@ export class ArrowScrollManager {
           console.warn('[ArrowScrollManager] Pool exhausted for direction:', dir);
           continue;
         }
+        // Allocate trail instances (pool exhaustion returns -1; release() handles -1 safely)
+        const trailId1 = this.renderer.allocate(dir);
+        const trailId2 = this.renderer.allocate(dir);
         this.activeArrows.push({
           noteIndex: this.nextNoteIndex,
           dir,
           instanceId: id,
+          trailId1,
+          trailId2,
           noteTime: note.time,
           judged: false,
           missed: false,
@@ -183,11 +200,17 @@ export class ArrowScrollManager {
         const t = Math.min((now - arrow.fadeStartMs) / FADE_DURATION_MS, 1.0);
 
         if (t >= 1.0) {
-          // Fully faded — release to pool and remove from active list
+          // Fully faded — release main + trail instances, remove from active list
           this.renderer.release(arrow.dir, arrow.instanceId);
+          this.renderer.release(arrow.dir, arrow.trailId1);
+          this.renderer.release(arrow.dir, arrow.trailId2);
           this.activeArrows.splice(i, 1);
           continue;
         }
+
+        // Hide trails immediately during fade — only main arrow animates
+        if (arrow.trailId1 >= 0) this.renderer.setOpacity(arrow.dir, arrow.trailId1, 0);
+        if (arrow.trailId2 >= 0) this.renderer.setOpacity(arrow.dir, arrow.trailId2, 0);
 
         // Slide slightly upward while fading for visual polish
         this.renderer.setPosition(arrow.dir, arrow.instanceId, x, y + t * 0.3);
@@ -200,9 +223,20 @@ export class ArrowScrollManager {
       if (inView) {
         this.renderer.setPosition(arrow.dir, arrow.instanceId, x, y);
         this.renderer.setOpacity(arrow.dir, arrow.instanceId, 1.0);
+        // Neon comet trail: two ghost instances behind the main arrow
+        if (arrow.trailId1 >= 0) {
+          this.renderer.setPosition(arrow.dir, arrow.trailId1, x, y - TRAIL_SPACING);
+          this.renderer.setOpacity(arrow.dir, arrow.trailId1, TRAIL_OPACITY_1);
+        }
+        if (arrow.trailId2 >= 0) {
+          this.renderer.setPosition(arrow.dir, arrow.trailId2, x, y - TRAIL_SPACING * 2);
+          this.renderer.setOpacity(arrow.dir, arrow.trailId2, TRAIL_OPACITY_2);
+        }
       } else {
         // Outside viewport — park off-screen (opacity 0 = invisible in additive blend)
         this.renderer.setOpacity(arrow.dir, arrow.instanceId, 0);
+        if (arrow.trailId1 >= 0) this.renderer.setOpacity(arrow.dir, arrow.trailId1, 0);
+        if (arrow.trailId2 >= 0) this.renderer.setOpacity(arrow.dir, arrow.trailId2, 0);
       }
     }
   }

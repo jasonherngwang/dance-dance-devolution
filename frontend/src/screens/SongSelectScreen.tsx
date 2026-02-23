@@ -17,6 +17,7 @@ export default function SongSelectScreen() {
   const resetGame = useGameStore(state => state.resetGame);
 
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
   // Cache chart per chart_url so we don't re-fetch when switching difficulties
   const [charts, setCharts] = useState<Record<string, ChartData>>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
@@ -27,6 +28,7 @@ export default function SongSelectScreen() {
       .then(r => r.json() as Promise<CatalogEntry[]>)
       .then(entries => {
         setCatalog(entries);
+        setCatalogLoading(false);
         const unique = [...new Set(entries.map(e => e.chart_url))];
         unique.forEach(url => {
           setLoading(prev => ({ ...prev, [url]: true }));
@@ -39,7 +41,7 @@ export default function SongSelectScreen() {
             .catch(() => setLoading(prev => ({ ...prev, [url]: false })));
         });
       })
-      .catch(() => {/* non-fatal */});
+      .catch(() => { setCatalogLoading(false); });
   }, []);
 
   const play = useCallback(
@@ -104,20 +106,57 @@ export default function SongSelectScreen() {
           </h1>
         </div>
 
-        {/* Song list */}
+        {/* Song list — skeleton while catalog loads */}
         <div className="w-full max-w-2xl grid grid-cols-1 gap-4">
-          {catalog.map(entry => (
-            <SongCard
-              key={entry.id}
-              entry={entry}
-              color={SONG_COLORS[entry.id] ?? '#ffffff'}
-              isLoading={!!loading[entry.chart_url]}
-              hasChart={!!charts[entry.chart_url]}
-              onPlay={difficulty => play(entry, difficulty)}
-            />
-          ))}
+          {catalogLoading
+            ? [0, 1, 2].map(i => <SongCardSkeleton key={i} />)
+            : catalog.map(entry => (
+                <SongCard
+                  key={entry.id}
+                  entry={entry}
+                  color={SONG_COLORS[entry.id] ?? '#ffffff'}
+                  isLoading={!!loading[entry.chart_url]}
+                  hasChart={!!charts[entry.chart_url]}
+                  onPlay={difficulty => play(entry, difficulty)}
+                />
+              ))
+          }
         </div>
 
+      </div>
+    </div>
+  );
+}
+
+// ── SongCardSkeleton ──────────────────────────────────────────────────────────
+
+function SongCardSkeleton() {
+  return (
+    <div
+      className="flex gap-4 p-4"
+      style={{
+        background: 'rgba(255,255,255,0.02)',
+        border: '1px solid rgba(255,255,255,0.07)',
+      }}
+    >
+      {/* Thumbnail skeleton */}
+      <div
+        style={{
+          width: 80, height: 80, flexShrink: 0,
+          background: 'rgba(255,255,255,0.05)',
+          border: '1px solid rgba(255,255,255,0.08)',
+        }}
+      />
+      {/* Text skeleton */}
+      <div className="flex-1 min-w-0 flex flex-col justify-between gap-3 py-1">
+        <div>
+          <div style={{ width: '60%', height: 20, background: 'rgba(255,255,255,0.07)', marginBottom: 8 }} />
+          <div style={{ width: '40%', height: 12, background: 'rgba(255,255,255,0.04)' }} />
+        </div>
+        <div className="flex gap-2">
+          <div style={{ flex: 1, height: 34, background: 'rgba(0,255,255,0.05)', border: '1px solid rgba(0,255,255,0.1)' }} />
+          <div style={{ flex: 1, height: 34, background: 'rgba(255,136,0,0.05)', border: '1px solid rgba(255,136,0,0.1)' }} />
+        </div>
       </div>
     </div>
   );
@@ -233,9 +272,10 @@ function DiffButton({
   disabled: boolean;
   onClick: () => void;
 }) {
+  const isLoadingState = label.startsWith('LOADING');
   return (
     <button
-      className="flex-1 py-2 font-bold tracking-widest text-sm transition-all duration-150"
+      className="flex-1 py-2 font-bold tracking-widest text-sm transition-all duration-150 flex items-center justify-center gap-2"
       style={{
         background: disabled ? 'rgba(255,255,255,0.03)' : bg,
         border: `2px solid ${disabled ? 'rgba(255,255,255,0.1)' : color}`,
@@ -253,6 +293,17 @@ function DiffButton({
         (e.currentTarget as HTMLElement).style.transform = '';
       }}
     >
+      {isLoadingState && (
+        <div
+          className="neon-spinner"
+          style={{
+            width: 10, height: 10,
+            borderWidth: 1.5,
+            borderColor: 'rgba(255,255,255,0.12)',
+            borderTopColor: 'rgba(255,255,255,0.3)',
+          }}
+        />
+      )}
       {label}
     </button>
   );

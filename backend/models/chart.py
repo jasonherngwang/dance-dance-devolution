@@ -1,0 +1,26 @@
+from typing import Literal, Union
+from pydantic import BaseModel
+
+Direction = Literal["left", "down", "up", "right"]
+Difficulty = Literal["easy", "hard"]
+
+
+class Note(BaseModel):
+    time: float  # seconds from chart start
+    direction: Union[Direction, list[Direction]]  # list for jumps
+
+
+class Chart(BaseModel):
+    difficulty: Difficulty
+    notes: list[Note]
+    note_count: int
+
+
+class ChartData(BaseModel):
+    title: str
+    artist: str
+    bpm: float
+    duration: float  # seconds
+    segment_start: float = 0.0  # seconds
+    audio_url: str = ""
+    charts: dict[Difficulty, Chart]

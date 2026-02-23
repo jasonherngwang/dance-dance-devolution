@@ -47,8 +47,9 @@ export default function HomeScreen() {
   }, [charts, resetGame, setActiveSong, navigate]);
 
   const handleAnalyze = useCallback(() => {
-    if (!ytUrl.trim()) return;
-    navigate('/loading');
+    const url = ytUrl.trim();
+    if (!url) return;
+    navigate('/loading', { state: { ytUrl: url } });
   }, [ytUrl, navigate]);
 
   const featured = catalog.find(e => e.featured);

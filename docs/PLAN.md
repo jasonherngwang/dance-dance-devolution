@@ -648,7 +648,7 @@ Acceptance criteria:
 
 **Issue 30**
 
-Status: READY
+Status: COMPLETE
 
 Task: Analysis loading screen with progress polling
 
@@ -662,11 +662,11 @@ Build the loading screen for custom YouTube URLs (PRD Section 5.4):
 - On complete, navigate to gameplay
 
 Acceptance criteria:
-- [ ] Progress bar updates as backend processes
-- [ ] Step indicators check off as stages complete
-- [ ] BPM and title appear when detected
-- [ ] "Play while you wait" navigates to a pre-loaded song
-- [ ] Auto-navigates to gameplay on completion
+- [x] Progress bar updates as backend processes
+- [x] Step indicators check off as stages complete
+- [x] BPM and title appear when detected
+- [x] "Play while you wait" navigates to a pre-loaded song
+- [x] Auto-navigates to gameplay on completion
 
 ---
 
@@ -695,7 +695,7 @@ Acceptance criteria:
 
 **Issue 32**
 
-Status: BLOCKED by Issues 29, 30
+Status: READY
 
 Task: "Play while you wait" flow
 

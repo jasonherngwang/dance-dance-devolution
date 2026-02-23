@@ -14,6 +14,8 @@ import { ComboDisplay, getHypeLevel } from './ComboDisplay';
 import { HypeOverlay } from './HypeOverlay';
 import { ScreenEffects } from './ScreenEffects';
 import { GameplayHUD } from './GameplayHUD';
+import { CountdownOverlay } from './CountdownOverlay';
+import type { CountdownPhase } from './CountdownOverlay';
 import { useGameStore } from '@/stores';
 import type { ChartData, Difficulty, Direction, JudgmentResult, JudgmentType, Note } from '@/types';
 
@@ -87,6 +89,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
   const chromaticTriggerRef = useRef<(() => void) | null>(null);
   const flashTriggerRef     = useRef<(() => void) | null>(null);
   const hudUpdateRef        = useRef<((score: number, progress: number) => void) | null>(null);
+  const countdownUpdateRef  = useRef<((phase: CountdownPhase) => void) | null>(null);
 
   // Stable callbacks for child registrations (avoid re-creating on each render)
   const onRegisterFlash      = useCallback((fn: () => void)                          => { flashTriggerRef.current      = fn; }, []);
@@ -95,6 +98,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
   const onRegisterCombo      = useCallback((fn: (c: number, b: boolean) => void)     => { comboDisplayFnRef.current    = fn; }, []);
   const onRegisterJudgment   = useCallback((fn: (j: JudgmentType, d: Direction) => void) => { judgmentTriggerRef.current = fn; }, []);
   const onRegisterHUD        = useCallback((fn: (score: number, progress: number) => void) => { hudUpdateRef.current = fn; }, []);
+  const onRegisterCountdown  = useCallback((fn: (phase: CountdownPhase) => void)     => { countdownUpdateRef.current  = fn; }, []);
 
   // Whether we are running real gameplay (vs demo)
   const isRealGame = chartData !== null;
@@ -118,7 +122,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     // Reset store for a fresh game session
     if (isRealGame) {
       useGameStore.getState().resetGame();
-      useGameStore.getState().startPlaying();
+      useGameStore.getState().startCountdown();
     }
 
     // -----------------------------------------------------------------------
@@ -178,21 +182,19 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
       audioPlayer = new AudioPlayer();
       timingEngine.segmentStart = chartData.segment_start ?? 0;
 
+      // Load audio but don't wire the timing engine yet — setAudioElement() is
+      // called after audio actually starts playing (at "GO!") so that early
+      // resyncs during the countdown don't snap the clock to 0.
       audioPlayer
         .load(chartData.audio_url, chartData.segment_start ?? 0)
-        .then(() => {
-          // Wire the audio element so the timing engine can resync every ~500ms
-          if (audioPlayer) {
-            timingEngine.setAudioElement(audioPlayer.element);
-          }
-        })
         .catch((err: unknown) => {
           console.warn('[AudioPlayer] Failed to load audio:', err);
         });
     }
 
-    // Start the timing engine clock (free-runs until audio is available)
-    timingEngine.play(0);
+    // In real-game mode start the clock 3 seconds early so arrows are visibly
+    // approaching during the countdown; demo mode starts at 0 immediately.
+    timingEngine.play(isRealGame ? -3 : 0);
 
     const postProcessing = new PostProcessingManager(renderer, scene, camera);
     const background     = new BackgroundRenderer(scene);
@@ -275,16 +277,19 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     // -----------------------------------------------------------------------
 
     const inputHandler = new InputHandler();
-    inputHandler.enable();
+    // Demo mode: enable immediately.  Real game: enabled at GO by the animation loop.
+    if (!isRealGame) inputHandler.enable();
 
     inputHandler.onInput = (direction: Direction, timestamp: number) => {
-      // Start local audio on first user gesture (browser AudioContext policy).
-      // Seek audio to match the current game clock so arrows stay in sync.
+      // Fallback: start audio on first keypress if it wasn't started at GO!
+      // (handles browsers that block autoplay even after a prior user gesture).
       if (audioPlayer && !audioStarted) {
         audioStarted = true;
         const currentGameTime = timingEngine.getCurrentTime();
         audioPlayer.seek(currentGameTime);
-        audioPlayer.play().catch((err: unknown) => {
+        audioPlayer.play().then(() => {
+          if (audioPlayer) timingEngine.setAudioElement(audioPlayer.element);
+        }).catch((err: unknown) => {
           console.warn('[AudioPlayer] play() failed:', err);
         });
       }
@@ -345,6 +350,13 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     let lastFrameTime  = performance.now();
     let lastBeatIndex  = -1;
 
+    // Countdown state (real game only).
+    // Timing engine starts at -3s; each second corresponds to one phase.
+    // Initialize to -1 (hidden) so the first frame always triggers an update call,
+    // revealing "3" as soon as the CountdownOverlay's useEffect has registered its fn.
+    let countdownPhase: CountdownPhase = -1;
+    let inputEnabled = !isRealGame; // demo mode: already enabled above
+
     renderer.setAnimationLoop(() => {
       const now = performance.now();
       const dt  = Math.min((now - lastFrameTime) / 1000, 0.05);
@@ -352,6 +364,46 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
 
       const songTime    = timingEngine.getCurrentTime();
       const realElapsed = (now - loopStart) / 1000;
+
+      // -----------------------------------------------------------------------
+      // Countdown management (real game only)
+      // -----------------------------------------------------------------------
+      if (isRealGame) {
+        if (!inputEnabled) {
+          // Compute the phase from song time (-3 → 0 window)
+          const newPhase: CountdownPhase =
+            songTime < -2 ? 3 :
+            songTime < -1 ? 2 :
+            songTime < 0  ? 1 : 0;
+
+          if (newPhase !== countdownPhase) {
+            countdownPhase = newPhase;
+            countdownUpdateRef.current?.(newPhase);
+          }
+
+          // At GO (t >= 0): enable input and start audio
+          if (songTime >= 0) {
+            inputEnabled = true;
+            inputHandler.enable();
+            useGameStore.getState().startPlaying();
+
+            if (audioPlayer && !audioStarted) {
+              audioStarted = true;
+              audioPlayer.seek(0);
+              audioPlayer.play().then(() => {
+                if (audioPlayer) timingEngine.setAudioElement(audioPlayer.element);
+              }).catch((err: unknown) => {
+                console.warn('[AudioPlayer] play() at GO! failed (will retry on first key):', err);
+                audioStarted = false; // allow keypress fallback
+              });
+            }
+          }
+        } else if (songTime >= 0.5 && countdownPhase !== -1) {
+          // Hide the "GO!" text after it has been visible for ~0.5s
+          countdownPhase = -1;
+          countdownUpdateRef.current?.(-1);
+        }
+      }
 
       // Demo loop: restart when we reach the end of the chart
       if (!isRealGame && songTime >= DEMO_DURATION) {
@@ -459,6 +511,9 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
 
       {/* Score + progress bar — only shown in real gameplay */}
       {isRealGame && <GameplayHUD onRegisterUpdate={onRegisterHUD} />}
+
+      {/* 3-2-1-GO countdown overlay — only shown in real gameplay */}
+      <CountdownOverlay isActive={isRealGame} onRegisterUpdate={onRegisterCountdown} />
     </div>
   );
 }

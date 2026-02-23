@@ -132,6 +132,38 @@ html, body {
   animation: hype-border-3-pulse 0.40s ease-in-out infinite alternate;
 }
 
+/* ---------------------------------------------------------------------------
+   3-2-1-GO countdown overlay (Issue 18)
+   --------------------------------------------------------------------------- */
+
+/* Number countdown: zoom in from large + blur, hold, then scale down + fade */
+@keyframes countdown-number-anim {
+  0%   { transform: scale(2.5); opacity: 0; filter: blur(16px); }
+  20%  { transform: scale(1.0); opacity: 1; filter: blur(0); }
+  75%  { transform: scale(1.0); opacity: 1; filter: blur(0); }
+  100% { transform: scale(0.82); opacity: 0; filter: blur(6px); }
+}
+
+/* GO! animation: burst outward and fade */
+@keyframes countdown-go-anim {
+  0%   { transform: scale(0.5); opacity: 0; }
+  28%  { transform: scale(1.18); opacity: 1; }
+  60%  { transform: scale(1.0); opacity: 1; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+
+.countdown-number {
+  display: inline-block;
+  animation: countdown-number-anim 1s ease-out forwards;
+  will-change: transform, opacity;
+}
+
+.countdown-go {
+  display: inline-block;
+  animation: countdown-go-anim 0.6s ease-out forwards;
+  will-change: transform, opacity;
+}
+
 /* Chromatic aberration flash — red left edge + blue right edge, fades out */
 @keyframes chromatic-aberration {
   0%   { opacity: 1; }

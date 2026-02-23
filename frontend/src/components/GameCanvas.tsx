@@ -1,9 +1,19 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three/webgpu';
+import { ArrowRenderer } from '@/rendering/ArrowRenderer';
+import type { Direction } from '@/types';
 
 function isWebGPUAvailable(): boolean {
   return typeof navigator !== 'undefined' && 'gpu' in navigator && navigator.gpu !== null;
 }
+
+// DDR column layout — world-space X positions, 1-unit apart
+const COLUMNS: { dir: Direction; x: number }[] = [
+  { dir: 'left', x: -1.5 },
+  { dir: 'down', x: -0.5 },
+  { dir: 'up', x: 0.5 },
+  { dir: 'right', x: 1.5 },
+];
 
 export function GameCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -52,12 +62,39 @@ export function GameCanvas() {
 
     window.addEventListener('resize', onResize);
 
+    // -------------------------------------------------------------------------
+    // Arrow system — Issue 5 demo
+    // -------------------------------------------------------------------------
+    const arrowRenderer = new ArrowRenderer(scene);
+
+    // Show one full-brightness arrow per direction at y = 0
+    for (const { dir, x } of COLUMNS) {
+      const id = arrowRenderer.allocate(dir);
+      if (id >= 0) {
+        arrowRenderer.setPosition(dir, id, x, 0);
+        arrowRenderer.setOpacity(dir, id, 1.0);
+      }
+    }
+
+    // Show a second set at y = -2 with dimmed opacity to demonstrate pool + opacity
+    for (const { dir, x } of COLUMNS) {
+      const id = arrowRenderer.allocate(dir);
+      if (id >= 0) {
+        arrowRenderer.setPosition(dir, id, x, -2);
+        arrowRenderer.setOpacity(dir, id, 0.35);
+      }
+    }
+
+    arrowRenderer.update();
+
     // Game loop
     renderer.setAnimationLoop(() => {
+      arrowRenderer.update(); // no-op when nothing is dirty
       renderer.render(scene, camera);
     });
 
     return () => {
+      arrowRenderer.dispose();
       renderer.setAnimationLoop(null);
       window.removeEventListener('resize', onResize);
       renderer.dispose();

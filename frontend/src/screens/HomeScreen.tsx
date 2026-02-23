@@ -1,42 +1,58 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGameStore } from '@/stores';
+import type { CatalogEntry } from '@/types/catalog';
 import type { ChartData, Difficulty } from '@/types';
 
-// Placeholder display catalog (real data + audio in Issue 23)
-const CATALOG_DISPLAY = [
-  { title: 'Sandstorm',       artist: 'Darude',     bpm: 136, color: '#ff00ff' },
-  { title: 'Butterfly',       artist: 'Smile.dk',   bpm: 154, color: '#00ffff' },
-  { title: 'Blinding Lights', artist: 'The Weeknd', bpm: 171, color: '#ff8800' },
-] as const;
+// Color accent per song id for theming
+const SONG_COLORS: Record<string, string> = {
+  'sandstorm': '#ff00ff',
+  'butterfly': '#00ffff',
+  'blinding-lights': '#ff8800',
+};
 
 export default function HomeScreen() {
   const navigate      = useNavigate();
   const setActiveSong = useGameStore(state => state.setActiveSong);
   const resetGame     = useGameStore(state => state.resetGame);
 
-  const [chart, setChart] = useState<ChartData | null>(null);
+  const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
+  // Cache: chart_url → ChartData
+  const [charts, setCharts] = useState<Record<string, ChartData>>({});
   const [ytUrl, setYtUrl] = useState('');
 
-  // Load the test chart for "Play Now" buttons
+  // Load catalog on mount, then pre-fetch each song's chart
   useEffect(() => {
-    fetch('/data/test-chart.json')
-      .then(r => r.json() as Promise<ChartData>)
-      .then(setChart)
+    fetch('/data/catalog.json')
+      .then(r => r.json() as Promise<CatalogEntry[]>)
+      .then(entries => {
+        setCatalog(entries);
+        // Pre-fetch every chart so buttons are ready quickly
+        entries.forEach(entry => {
+          fetch(entry.chart_url)
+            .then(r => r.json() as Promise<ChartData>)
+            .then(chart => setCharts(prev => ({ ...prev, [entry.chart_url]: chart })))
+            .catch(() => {/* non-fatal */});
+        });
+      })
       .catch(() => {/* non-fatal in dev */});
   }, []);
 
-  const play = useCallback((difficulty: Difficulty) => {
+  const play = useCallback((entry: CatalogEntry, difficulty: Difficulty) => {
+    const chart = charts[entry.chart_url];
     if (!chart) return;
     resetGame();
     setActiveSong(chart, difficulty);
     navigate('/play');
-  }, [chart, resetGame, setActiveSong, navigate]);
+  }, [charts, resetGame, setActiveSong, navigate]);
 
   const handleAnalyze = useCallback(() => {
     if (!ytUrl.trim()) return;
     navigate('/loading');
   }, [ytUrl, navigate]);
+
+  const featured = catalog.find(e => e.featured);
+  const featuredChart = featured ? charts[featured.chart_url] : null;
 
   return (
     <div
@@ -96,63 +112,91 @@ export default function HomeScreen() {
         </p>
 
         {/* ── Featured song ─────────────────────────────────────────────── */}
-        <div className="mt-14 w-full max-w-md">
-          <SectionLabel text="★  FEATURED SONG" />
-          <div
-            className="p-6"
-            style={{
-              background: 'linear-gradient(135deg, rgba(255,0,255,0.07) 0%, rgba(0,255,255,0.05) 100%)',
-              border: '1px solid rgba(255,0,255,0.28)',
-              boxShadow: '0 0 36px rgba(255,0,255,0.09), inset 0 0 24px rgba(255,0,255,0.04)',
-            }}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
+        {featured && (
+          <div className="mt-14 w-full max-w-md">
+            <SectionLabel text="★  FEATURED SONG" />
+            <div
+              className="p-6"
+              style={{
+                background: 'linear-gradient(135deg, rgba(255,0,255,0.07) 0%, rgba(0,255,255,0.05) 100%)',
+                border: '1px solid rgba(255,0,255,0.28)',
+                boxShadow: '0 0 36px rgba(255,0,255,0.09), inset 0 0 24px rgba(255,0,255,0.04)',
+              }}
+            >
+              <div className="flex items-start gap-4">
+                {/* Thumbnail */}
                 <div
-                  className="text-3xl font-black tracking-widest"
-                  style={{ color: '#ff00ff', textShadow: '0 0 14px rgba(255,0,255,0.8)' }}
+                  className="shrink-0"
+                  style={{
+                    width: 72,
+                    height: 72,
+                    border: '1px solid rgba(255,0,255,0.3)',
+                    overflow: 'hidden',
+                  }}
                 >
-                  SANDSTORM
+                  <img
+                    src={featured.thumbnail_url}
+                    alt={featured.title}
+                    width={72}
+                    height={72}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                  />
                 </div>
-                <div className="mt-1 text-sm" style={{ color: 'rgba(255,255,255,0.5)' }}>
-                  Darude&nbsp;·&nbsp;136 BPM
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <div
+                      className="text-2xl font-black tracking-widest truncate"
+                      style={{ color: '#ff00ff', textShadow: '0 0 14px rgba(255,0,255,0.8)' }}
+                    >
+                      {featured.title.toUpperCase()}
+                    </div>
+                    <span
+                      className="text-xs px-2 py-1 shrink-0"
+                      style={{
+                        border: '1px solid rgba(255,0,255,0.3)',
+                        color: 'rgba(255,0,255,0.65)',
+                      }}
+                    >
+                      ★ FEATURED
+                    </span>
+                  </div>
+                  <div className="mt-1 text-sm" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                    {featured.artist}&nbsp;·&nbsp;{featured.bpm} BPM
+                  </div>
                 </div>
               </div>
-              <span
-                className="text-xs px-2 py-1 shrink-0"
-                style={{
-                  border: '1px solid rgba(255,0,255,0.3)',
-                  color: 'rgba(255,0,255,0.65)',
-                }}
-              >
-                ★ FEATURED
-              </span>
-            </div>
-            <div className="mt-5 flex gap-3">
-              <DiffButton
-                label="▶ PLAY EASY"
-                color="#00ffff"
-                bg="rgba(0,255,255,0.11)"
-                disabled={!chart}
-                onClick={() => play('easy')}
-              />
-              <DiffButton
-                label="▶ PLAY HARD"
-                color="#ff8800"
-                bg="rgba(255,136,0,0.11)"
-                disabled={!chart}
-                onClick={() => play('hard')}
-              />
+              <div className="mt-5 flex gap-3">
+                <DiffButton
+                  label="▶ PLAY EASY"
+                  color="#00ffff"
+                  bg="rgba(0,255,255,0.11)"
+                  disabled={!featuredChart}
+                  onClick={() => play(featured, 'easy')}
+                />
+                <DiffButton
+                  label="▶ PLAY HARD"
+                  color="#ff8800"
+                  bg="rgba(255,136,0,0.11)"
+                  disabled={!featuredChart}
+                  onClick={() => play(featured, 'hard')}
+                />
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* ── Song thumbnails ───────────────────────────────────────────── */}
         <div className="mt-10 w-full max-w-md">
           <SectionLabel text="PICK A SONG" />
           <div className="grid grid-cols-3 gap-3">
-            {CATALOG_DISPLAY.map((song) => (
-              <SongCard key={song.title} song={song} onClick={() => play('easy')} />
+            {catalog.map((entry) => (
+              <SongCard
+                key={entry.id}
+                entry={entry}
+                color={SONG_COLORS[entry.id] ?? '#ffffff'}
+                onClick={() => play(entry, 'easy')}
+              />
             ))}
           </div>
           <HoverButton
@@ -272,21 +316,23 @@ function DiffButton({
 }
 
 function SongCard({
-  song,
+  entry,
+  color,
   onClick,
 }: {
-  song: { title: string; artist: string; bpm: number; color: string };
+  entry: CatalogEntry;
+  color: string;
   onClick: () => void;
 }) {
   const handleEnter = (e: React.MouseEvent<HTMLButtonElement>) => {
     const el = e.currentTarget;
-    el.style.borderColor = `${song.color}55`;
-    el.style.boxShadow = `0 0 18px ${song.color}18`;
+    el.style.borderColor = `${color}55`;
+    el.style.boxShadow = `0 0 18px ${color}18`;
     el.style.transform = 'scale(1.03)';
   };
   const handleLeave = (e: React.MouseEvent<HTMLButtonElement>) => {
     const el = e.currentTarget;
-    el.style.borderColor = `${song.color}1a`;
+    el.style.borderColor = `${color}1a`;
     el.style.boxShadow = '';
     el.style.transform = '';
   };
@@ -295,36 +341,43 @@ function SongCard({
     <button
       className="flex flex-col items-start p-3 text-left w-full transition-all duration-150"
       style={{
-        background: `linear-gradient(135deg, ${song.color}0d, transparent)`,
-        border: `1px solid ${song.color}1a`,
+        background: `linear-gradient(135deg, ${color}0d, transparent)`,
+        border: `1px solid ${color}1a`,
       }}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
       onClick={onClick}
     >
-      {/* Thumbnail placeholder */}
+      {/* Thumbnail */}
       <div
-        className="w-full aspect-square mb-2 flex items-center justify-center text-3xl"
+        className="w-full aspect-square mb-2 flex items-center justify-center text-3xl overflow-hidden"
         style={{
-          background: `linear-gradient(135deg, ${song.color}16, ${song.color}06)`,
-          border: `1px solid ${song.color}16`,
-          color: song.color,
-          textShadow: `0 0 14px ${song.color}`,
+          background: `linear-gradient(135deg, ${color}16, ${color}06)`,
+          border: `1px solid ${color}16`,
+          color: color,
+          textShadow: `0 0 14px ${color}`,
         }}
       >
-        ♪
+        <img
+          src={entry.thumbnail_url}
+          alt={entry.title}
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          onError={e => {
+            (e.currentTarget as HTMLImageElement).style.display = 'none';
+          }}
+        />
       </div>
       <div
         className="text-xs font-bold tracking-wide truncate w-full"
-        style={{ color: song.color, textShadow: `0 0 6px ${song.color}` }}
+        style={{ color: color, textShadow: `0 0 6px ${color}` }}
       >
-        {song.title}
+        {entry.title}
       </div>
       <div className="text-xs mt-0.5 truncate w-full" style={{ color: 'rgba(255,255,255,0.4)' }}>
-        {song.artist}
+        {entry.artist}
       </div>
       <div className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.27)' }}>
-        {song.bpm} BPM
+        {entry.bpm} BPM
       </div>
     </button>
   );

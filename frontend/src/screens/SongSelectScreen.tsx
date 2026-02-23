@@ -1,73 +1,53 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGameStore } from '@/stores';
+import type { CatalogEntry } from '@/types/catalog';
 import type { ChartData, Difficulty } from '@/types';
 
-// Catalog entries — real audio/chart files added in Issue 23.
-// For now, all entries share the test chart; audio_url per entry overrides later.
-const CATALOG = [
-  {
-    id: 'sandstorm',
-    title: 'Sandstorm',
-    artist: 'Darude',
-    bpm: 136,
-    color: '#ff00ff',
-    featured: true,
-    chartUrl: '/data/test-chart.json',
-  },
-  {
-    id: 'butterfly',
-    title: 'Butterfly',
-    artist: 'Smile.dk',
-    bpm: 154,
-    color: '#00ffff',
-    featured: false,
-    chartUrl: '/data/test-chart.json',
-  },
-  {
-    id: 'blinding-lights',
-    title: 'Blinding Lights',
-    artist: 'The Weeknd',
-    bpm: 171,
-    color: '#ff8800',
-    featured: false,
-    chartUrl: '/data/test-chart.json',
-  },
-] as const;
-
-type CatalogItem = (typeof CATALOG)[number];
+// Color accent per song id for theming
+const SONG_COLORS: Record<string, string> = {
+  'sandstorm': '#ff00ff',
+  'butterfly': '#00ffff',
+  'blinding-lights': '#ff8800',
+};
 
 export default function SongSelectScreen() {
   const navigate = useNavigate();
   const setActiveSong = useGameStore(state => state.setActiveSong);
   const resetGame = useGameStore(state => state.resetGame);
 
-  // Cache chart per URL so we don't re-fetch when switching difficulties
+  const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
+  // Cache chart per chart_url so we don't re-fetch when switching difficulties
   const [charts, setCharts] = useState<Record<string, ChartData>>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
 
-  // Pre-fetch all unique chart URLs on mount
+  // Load catalog then pre-fetch all charts on mount
   useEffect(() => {
-    const unique = [...new Set(CATALOG.map(s => s.chartUrl))];
-    unique.forEach(url => {
-      setLoading(prev => ({ ...prev, [url]: true }));
-      fetch(url)
-        .then(r => r.json() as Promise<ChartData>)
-        .then(data => {
-          setCharts(prev => ({ ...prev, [url]: data }));
-          setLoading(prev => ({ ...prev, [url]: false }));
-        })
-        .catch(() => setLoading(prev => ({ ...prev, [url]: false })));
-    });
+    fetch('/data/catalog.json')
+      .then(r => r.json() as Promise<CatalogEntry[]>)
+      .then(entries => {
+        setCatalog(entries);
+        const unique = [...new Set(entries.map(e => e.chart_url))];
+        unique.forEach(url => {
+          setLoading(prev => ({ ...prev, [url]: true }));
+          fetch(url)
+            .then(r => r.json() as Promise<ChartData>)
+            .then(data => {
+              setCharts(prev => ({ ...prev, [url]: data }));
+              setLoading(prev => ({ ...prev, [url]: false }));
+            })
+            .catch(() => setLoading(prev => ({ ...prev, [url]: false })));
+        });
+      })
+      .catch(() => {/* non-fatal */});
   }, []);
 
   const play = useCallback(
-    (song: CatalogItem, difficulty: Difficulty) => {
-      const chart = charts[song.chartUrl];
+    (entry: CatalogEntry, difficulty: Difficulty) => {
+      const chart = charts[entry.chart_url];
       if (!chart) return;
       resetGame();
-      // Patch in catalog metadata so the results screen shows the right song name
-      setActiveSong({ ...chart, title: song.title, artist: song.artist, bpm: song.bpm }, difficulty);
+      setActiveSong(chart, difficulty);
       navigate('/play');
     },
     [charts, resetGame, setActiveSong, navigate],
@@ -124,15 +104,16 @@ export default function SongSelectScreen() {
           </h1>
         </div>
 
-        {/* Song grid */}
+        {/* Song list */}
         <div className="w-full max-w-2xl grid grid-cols-1 gap-4">
-          {CATALOG.map(song => (
+          {catalog.map(entry => (
             <SongCard
-              key={song.id}
-              song={song}
-              isLoading={!!loading[song.chartUrl]}
-              hasChart={!!charts[song.chartUrl]}
-              onPlay={difficulty => play(song, difficulty)}
+              key={entry.id}
+              entry={entry}
+              color={SONG_COLORS[entry.id] ?? '#ffffff'}
+              isLoading={!!loading[entry.chart_url]}
+              hasChart={!!charts[entry.chart_url]}
+              onPlay={difficulty => play(entry, difficulty)}
             />
           ))}
         </div>
@@ -145,12 +126,14 @@ export default function SongSelectScreen() {
 // ── SongCard ─────────────────────────────────────────────────────────────────
 
 function SongCard({
-  song,
+  entry,
+  color,
   isLoading,
   hasChart,
   onPlay,
 }: {
-  song: CatalogItem;
+  entry: CatalogEntry;
+  color: string;
   isLoading: boolean;
   hasChart: boolean;
   onPlay: (difficulty: Difficulty) => void;
@@ -161,24 +144,31 @@ function SongCard({
     <div
       className="flex gap-4 p-4 transition-all duration-150"
       style={{
-        background: `linear-gradient(135deg, ${song.color}08, rgba(8,8,16,0.6))`,
-        border: `1px solid ${song.color}22`,
-        boxShadow: `0 0 24px ${song.color}06`,
+        background: `linear-gradient(135deg, ${color}08, rgba(8,8,16,0.6))`,
+        border: `1px solid ${color}22`,
+        boxShadow: `0 0 24px ${color}06`,
       }}
     >
       {/* Thumbnail */}
       <div
-        className="shrink-0 flex items-center justify-center text-4xl select-none"
+        className="shrink-0 flex items-center justify-center text-4xl select-none overflow-hidden"
         style={{
           width: 80,
           height: 80,
-          background: `linear-gradient(135deg, ${song.color}18, ${song.color}06)`,
-          border: `1px solid ${song.color}18`,
-          color: song.color,
-          textShadow: `0 0 16px ${song.color}`,
+          background: `linear-gradient(135deg, ${color}18, ${color}06)`,
+          border: `1px solid ${color}18`,
+          color: color,
+          textShadow: `0 0 16px ${color}`,
         }}
       >
-        ♪
+        <img
+          src={entry.thumbnail_url}
+          alt={entry.title}
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          onError={e => {
+            (e.currentTarget as HTMLImageElement).style.display = 'none';
+          }}
+        />
       </div>
 
       {/* Info + buttons */}
@@ -187,23 +177,23 @@ function SongCard({
           <div className="flex items-center gap-2">
             <span
               className="text-xl font-black tracking-wide truncate"
-              style={{ color: song.color, textShadow: `0 0 10px ${song.color}88` }}
+              style={{ color: color, textShadow: `0 0 10px ${color}88` }}
             >
-              {song.title}
+              {entry.title}
             </span>
-            {song.featured && (
+            {entry.featured && (
               <span
                 className="text-xs px-2 py-0.5 shrink-0"
-                style={{ border: `1px solid ${song.color}44`, color: `${song.color}99` }}
+                style={{ border: `1px solid ${color}44`, color: `${color}99` }}
               >
                 ★ FEATURED
               </span>
             )}
           </div>
           <div className="text-sm mt-0.5" style={{ color: 'rgba(255,255,255,0.45)' }}>
-            {song.artist}
+            {entry.artist}
             <span style={{ color: 'rgba(255,255,255,0.25)' }}>&nbsp;·&nbsp;</span>
-            <span style={{ color: 'rgba(255,255,255,0.35)' }}>{song.bpm} BPM</span>
+            <span style={{ color: 'rgba(255,255,255,0.35)' }}>{entry.bpm} BPM</span>
           </div>
         </div>
 

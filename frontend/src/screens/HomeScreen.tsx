@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGameStore } from '@/stores';
+import { HomeBackground } from '@/components/HomeBackground';
 import type { CatalogEntry } from '@/types/catalog';
 import type { ChartData, Difficulty } from '@/types';
 
@@ -60,17 +61,19 @@ export default function HomeScreen() {
       className="relative h-full w-full"
       style={{ overflowY: 'auto', scrollbarWidth: 'none' } as React.CSSProperties}
     >
-      {/* ── Neon grid background ──────────────────────────────────────────── */}
+      {/* ── Static neon grid fallback (CSS only, always visible first) ──────── */}
       <div
         className="fixed inset-0 pointer-events-none"
         style={{
           backgroundImage: `
-            linear-gradient(rgba(0,255,255,0.055) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(0,255,255,0.055) 1px, transparent 1px)
+            linear-gradient(rgba(0,255,255,0.035) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(0,255,255,0.035) 1px, transparent 1px)
           `,
           backgroundSize: '52px 52px',
         }}
       />
+      {/* ── WebGPU animated particle background (lazy-loaded) ─────────────── */}
+      <HomeBackground />
       {/* Vignette over grid — darkens edges, keeps center readable */}
       <div
         className="fixed inset-0 pointer-events-none"

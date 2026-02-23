@@ -762,7 +762,7 @@ Acceptance criteria:
 
 **Issue 35**
 
-Status: READY
+Status: COMPLETE
 
 Task: Landing page animated WebGPU background
 
@@ -774,10 +774,10 @@ Make the home screen visually impressive (PRD Section 5.2):
 - Background should not interfere with UI readability
 
 Acceptance criteria:
-- [ ] Home screen has an animated 3D background
-- [ ] Background is visually impressive but not distracting
-- [ ] HTML content renders before 3D canvas initializes
-- [ ] UI text remains readable over the background
+- [x] Home screen has an animated 3D background
+- [x] Background is visually impressive but not distracting
+- [x] HTML content renders before 3D canvas initializes
+- [x] UI text remains readable over the background
 
 ---
 
@@ -825,7 +825,7 @@ Acceptance criteria:
 
 **Issue 38**
 
-Status: BLOCKED by Issues 16, 33, 35
+Status: READY
 
 Task: Visual polish pass
 

@@ -3,8 +3,32 @@ import type { JobStatus } from '../types';
 
 const POLL_INTERVAL_MS = 2000;
 
+export interface PendingJobInfo {
+  /** Song title extracted during analysis, if available. */
+  title?: string;
+}
+
+export interface CompletedJobInfo {
+  /** YouTube video ID — used to fetch the chart. */
+  videoId: string;
+  /** Song title, if known at completion time. */
+  title?: string;
+}
+
 interface JobStore {
   jobs: Map<string, JobStatus>;
+
+  /**
+   * Jobs the user opted to wait on by clicking "Play while you wait".
+   * These are tracked globally so a notification can appear on any screen.
+   */
+  pendingJobs: Map<string, PendingJobInfo>;
+
+  /**
+   * Jobs that completed while the user was playing a different song.
+   * Each entry represents a ready chart waiting to be played.
+   */
+  completedJobs: Map<string, CompletedJobInfo>;
 
   // Add/update a job
   upsertJob: (status: JobStatus) => void;
@@ -31,10 +55,22 @@ interface JobStore {
 
   /** Stop all active pollers (e.g., on unmount). */
   stopAllPolling: () => void;
+
+  /**
+   * Register a job for global tracking. Called when the user chooses to
+   * "Play while you wait" — keeps polling alive after LoadingScreen unmounts
+   * and delivers a completion notification regardless of which screen is active.
+   */
+  registerPendingJob: (jobId: string, info: PendingJobInfo) => void;
+
+  /** Dismiss (clear) a completed-job notification. */
+  clearCompletedJob: (jobId: string) => void;
 }
 
 export const useJobStore = create<JobStore>((set, get) => ({
   jobs: new Map(),
+  pendingJobs: new Map(),
+  completedJobs: new Map(),
   _pollers: new Map(),
 
   upsertJob: (status) => {
@@ -75,6 +111,24 @@ export const useJobStore = create<JobStore>((set, get) => ({
         if (isDone) {
           stopPolling(jobId);
           onComplete?.(status);
+
+          // If this was a "play while waiting" job, move it to completedJobs
+          const isComplete = status.state === 'complete' || status.status === 'complete';
+          if (isComplete && status.video_id) {
+            const pendingInfo = get().pendingJobs.get(jobId);
+            if (pendingInfo) {
+              set((state) => {
+                const completedNext = new Map(state.completedJobs);
+                completedNext.set(jobId, {
+                  videoId: status.video_id!,
+                  title: pendingInfo.title ?? status.title,
+                });
+                const pendingNext = new Map(state.pendingJobs);
+                pendingNext.delete(jobId);
+                return { completedJobs: completedNext, pendingJobs: pendingNext };
+              });
+            }
+          }
         }
       } catch {
         // Network error — keep retrying until explicitly stopped
@@ -107,5 +161,21 @@ export const useJobStore = create<JobStore>((set, get) => ({
       clearInterval(handle);
     }
     set({ _pollers: new Map() });
+  },
+
+  registerPendingJob: (jobId, info) => {
+    set((state) => {
+      const next = new Map(state.pendingJobs);
+      next.set(jobId, info);
+      return { pendingJobs: next };
+    });
+  },
+
+  clearCompletedJob: (jobId) => {
+    set((state) => {
+      const next = new Map(state.completedJobs);
+      next.delete(jobId);
+      return { completedJobs: next };
+    });
   },
 }));

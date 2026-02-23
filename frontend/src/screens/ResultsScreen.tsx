@@ -1,6 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGameStore } from '@/stores';
+import { useJobStore } from '@/stores/jobStore';
+import type { ChartData } from '@/types';
 
 const GRADE_COLORS: Record<string, string> = {
   S: '#ffff00',
@@ -11,12 +13,14 @@ const GRADE_COLORS: Record<string, string> = {
 };
 
 export default function ResultsScreen() {
-  const navigate         = useNavigate();
-  const gameResult       = useGameStore(state => state.gameResult);
-  const activeSong       = useGameStore(state => state.activeSong);
-  const activeDifficulty = useGameStore(state => state.activeDifficulty);
-  const setActiveSong    = useGameStore(state => state.setActiveSong);
-  const resetGame        = useGameStore(state => state.resetGame);
+  const navigate          = useNavigate();
+  const gameResult        = useGameStore(state => state.gameResult);
+  const activeSong        = useGameStore(state => state.activeSong);
+  const activeDifficulty  = useGameStore(state => state.activeDifficulty);
+  const setActiveSong     = useGameStore(state => state.setActiveSong);
+  const resetGame         = useGameStore(state => state.resetGame);
+  const completedJobs     = useJobStore(s => s.completedJobs);
+  const clearCompletedJob = useJobStore(s => s.clearCompletedJob);
 
   // Guard: redirect home if there's no result (e.g., direct URL access)
   useEffect(() => {
@@ -38,6 +42,23 @@ export default function ResultsScreen() {
   function handleNewSong() {
     navigate('/');
   }
+
+  const handlePlayReadySong = useCallback(async (jobId: string, videoId: string) => {
+    clearCompletedJob(jobId);
+    try {
+      const res = await fetch(`/api/chart/${videoId}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const chart: ChartData = await res.json();
+      resetGame();
+      setActiveSong(chart, 'easy');
+      navigate('/play');
+    } catch (err) {
+      console.error('[ResultsScreen] Failed to load ready song:', err);
+    }
+  }, [clearCompletedJob, resetGame, setActiveSong, navigate]);
+
+  // First completed job, if any (show banner on results screen)
+  const firstReadyEntry = completedJobs.size > 0 ? [...completedJobs.entries()][0] : null;
 
   return (
     <div
@@ -156,6 +177,57 @@ export default function ResultsScreen() {
           <StatRow label="MAX COMBO" value={String(gameResult.maxCombo)}       color="#ff8800"   last={false} />
           <StatRow label="ACCURACY"  value={`${gameResult.accuracy.toFixed(1)}%`} color="#00ff88" last={true} />
         </div>
+
+        {/* ── Song-ready notification banner ───────────────────────────────── */}
+        {firstReadyEntry && (() => {
+          const [jobId, info] = firstReadyEntry;
+          return (
+            <div
+              className="mt-8 w-full max-w-xs"
+              style={{
+                animation: 'results-fade-up 0.5s 0.65s ease-out both',
+                background: 'rgba(0,255,136,0.05)',
+                border: '1px solid rgba(0,255,136,0.4)',
+                boxShadow: '0 0 20px rgba(0,255,136,0.1)',
+              }}
+            >
+              <div className="flex items-center gap-3 px-4 py-3">
+                <div style={{ fontSize: 20, color: '#00ff88', textShadow: '0 0 10px rgba(0,255,136,0.7)', flexShrink: 0 }}>
+                  ♪
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 9, letterSpacing: '0.2em', color: 'rgba(0,255,136,0.7)', fontWeight: 700, marginBottom: 2 }}>
+                    YOUR SONG IS READY
+                  </div>
+                  {info.title && (
+                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {info.title}
+                    </div>
+                  )}
+                </div>
+                <button
+                  style={{
+                    flexShrink: 0,
+                    padding: '6px 14px',
+                    background: 'rgba(0,255,136,0.14)',
+                    border: '1px solid rgba(0,255,136,0.55)',
+                    color: '#00ff88',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: '0.1em',
+                    cursor: 'pointer',
+                    textShadow: '0 0 8px rgba(0,255,136,0.6)',
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,255,136,0.26)'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,255,136,0.14)'; }}
+                  onClick={() => handlePlayReadySong(jobId, info.videoId)}
+                >
+                  ▶ PLAY NOW
+                </button>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── Action buttons ───────────────────────────────────────────────── */}
         <div

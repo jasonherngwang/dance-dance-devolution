@@ -4,6 +4,7 @@ import { useJobStore } from '@/stores/jobStore';
 import { useGameStore } from '@/stores';
 import type { JobStatus, JobStatusType } from '@/types';
 import type { ChartData, CatalogEntry } from '@/types';
+import type { PendingJobInfo } from '@/stores/jobStore';
 
 // ── Pipeline step definitions ─────────────────────────────────────────────────
 
@@ -89,12 +90,13 @@ function NeonBg() {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function LoadingScreen() {
-  const navigate      = useNavigate();
-  const location      = useLocation();
-  const startPolling  = useJobStore(s => s.startPolling);
-  const stopPolling   = useJobStore(s => s.stopPolling);
-  const setActiveSong = useGameStore(s => s.setActiveSong);
-  const resetGame     = useGameStore(s => s.resetGame);
+  const navigate            = useNavigate();
+  const location            = useLocation();
+  const startPolling        = useJobStore(s => s.startPolling);
+  const stopPolling         = useJobStore(s => s.stopPolling);
+  const registerPendingJob  = useJobStore(s => s.registerPendingJob);
+  const setActiveSong       = useGameStore(s => s.setActiveSong);
+  const resetGame           = useGameStore(s => s.resetGame);
 
   const ytUrl: string = (location.state as { ytUrl?: string } | null)?.ytUrl ?? '';
 
@@ -105,8 +107,10 @@ export default function LoadingScreen() {
   const [featuredChart, setFeaturedChart] = useState<ChartData | null>(null);
 
   // We only want to navigate once when complete
-  const navigatedRef = useRef(false);
-  const jobIdRef     = useRef<string | null>(null);
+  const navigatedRef              = useRef(false);
+  const jobIdRef                  = useRef<string | null>(null);
+  // Set to true when user clicks "Play while you wait" so cleanup keeps polling alive
+  const isPlayingWhileWaitingRef  = useRef(false);
 
   // Load featured song for "play while you wait"
   useEffect(() => {
@@ -178,7 +182,11 @@ export default function LoadingScreen() {
 
     return () => {
       cancelled = true;
-      if (jobIdRef.current) stopPolling(jobIdRef.current);
+      // Only stop polling if the user didn't opt to play while waiting.
+      // When playing while waiting, the jobStore keeps polling globally.
+      if (jobIdRef.current && !isPlayingWhileWaitingRef.current) {
+        stopPolling(jobIdRef.current);
+      }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ytUrl]);
@@ -203,12 +211,18 @@ export default function LoadingScreen() {
     [navigate, setActiveSong, resetGame],
   );
 
-  const handlePlayFeatured = useCallback(() => {
+  const handlePlayFeatured = useCallback((pendingTitle?: string) => {
     if (!featuredSong || !featuredChart) return;
+    // Register the pending job for global tracking before navigating away
+    if (jobIdRef.current) {
+      const info: PendingJobInfo = { title: pendingTitle };
+      registerPendingJob(jobIdRef.current, info);
+      isPlayingWhileWaitingRef.current = true;
+    }
     resetGame();
     setActiveSong(featuredChart, 'easy');
     navigate('/play');
-  }, [featuredSong, featuredChart, resetGame, setActiveSong, navigate]);
+  }, [featuredSong, featuredChart, resetGame, setActiveSong, navigate, registerPendingJob]);
 
   // Backend returns 'state'; fallback chain for robustness
   const status = jobStatus?.state ?? jobStatus?.status ?? (error ? 'error' : 'queued');
@@ -473,7 +487,7 @@ export default function LoadingScreen() {
                     }}
                     onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,0,255,0.22)'; }}
                     onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,0,255,0.12)'; }}
-                    onClick={handlePlayFeatured}
+                    onClick={() => handlePlayFeatured(detectedTitle ?? undefined)}
                   >
                     ▶ PLAY
                   </button>

@@ -695,7 +695,7 @@ Acceptance criteria:
 
 **Issue 32**
 
-Status: READY
+Status: COMPLETE
 
 Task: "Play while you wait" flow
 
@@ -708,10 +708,10 @@ Implement the background job tracking during gameplay (PRD Section 5.4):
 - Toast component: fixed-position overlay with play button
 
 Acceptance criteria:
-- [ ] Polling continues while user plays a different song
-- [ ] Completion notification appears on results screen
-- [ ] Mid-game toast is non-intrusive
-- [ ] Clicking the notification navigates to the custom song
+- [x] Polling continues while user plays a different song
+- [x] Completion notification appears on results screen
+- [x] Mid-game toast is non-intrusive
+- [x] Clicking the notification navigates to the custom song
 
 ---
 
@@ -803,7 +803,7 @@ Acceptance criteria:
 
 **Issue 37**
 
-Status: BLOCKED by Issues 29, 30, 31, 32
+Status: READY
 
 Task: Error handling and edge cases
 

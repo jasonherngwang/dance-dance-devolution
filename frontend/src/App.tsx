@@ -1,4 +1,5 @@
 import { Outlet, useLocation } from 'react-router-dom';
+import SongReadyToast from '@/components/SongReadyToast';
 
 function App() {
   const { pathname } = useLocation();
@@ -9,6 +10,8 @@ function App() {
       <div key={pathname} className="screen-fade-in h-full w-full">
         <Outlet />
       </div>
+      {/* Global notification: fires on any screen when a YouTube analysis job completes */}
+      <SongReadyToast />
     </div>
   );
 }

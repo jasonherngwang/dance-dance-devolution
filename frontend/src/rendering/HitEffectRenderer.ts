@@ -98,6 +98,9 @@ export class HitEffectRenderer {
   // Current hype level (0–3) set externally to scale particle counts
   private _hypeLevel: 0 | 1 | 2 | 3 = 0;
 
+  // Mobile reduction factor (0.5 on touch devices to halve particle counts)
+  private _mobileFactor = 1.0;
+
   // Scratch objects — reused every frame to avoid GC pressure
   private readonly _pos   = new THREE.Vector3();
   private readonly _quat  = new THREE.Quaternion(); // identity
@@ -179,6 +182,14 @@ export class HitEffectRenderer {
   }
 
   /**
+   * Set a multiplicative factor applied to all particle counts.
+   * Use 0.5 on mobile devices to halve particle counts for performance.
+   */
+  setMobileFactor(factor: number): void {
+    this._mobileFactor = Math.max(0.1, Math.min(1.0, factor));
+  }
+
+  /**
    * Trigger a hit effect at the receptor for the given direction and judgment.
    * Particle counts are scaled by the current hype level.
    * Safe to call at any time (including from inside the animation loop).
@@ -186,7 +197,7 @@ export class HitEffectRenderer {
   triggerHitEffect(direction: Direction, judgment: JudgmentType): void {
     const x = COLUMN_X[direction];
     const y = RECEPTOR_Y;
-    const mult = HYPE_PARTICLE_MULT[this._hypeLevel];
+    const mult = HYPE_PARTICLE_MULT[this._hypeLevel] * this._mobileFactor;
 
     if (judgment === 'perfect') {
       const base = 80 + Math.floor(Math.random() * 41); // 80–120 base

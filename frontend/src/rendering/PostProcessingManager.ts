@@ -16,6 +16,11 @@ export class PostProcessingManager {
   // RenderPipeline replaced PostProcessing in Three.js r183; both available in three/webgpu
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private pipeline: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _sceneNode: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _bloomNode: any;
+  private _bloomEnabled = true;
   private disposed = false;
 
   constructor(
@@ -29,13 +34,30 @@ export class PostProcessingManager {
 
     // Scene render pass → get the colour output texture
     const scenePass = pass(scene, camera);
-    const scenePassColor = scenePass.getTextureNode('output');
+    this._sceneNode = scenePass.getTextureNode('output');
 
     // Bloom: bloom(input, strength, radius, threshold)
     // Subtle settings: only very bright neon pixels bloom; avoids polluting dark bg
-    const bloomPass = bloom(scenePassColor, 0.4, 0.5, 0.85);
+    this._bloomNode = bloom(this._sceneNode, 0.4, 0.5, 0.85);
 
-    this.pipeline.outputNode = scenePassColor.add(bloomPass);
+    this.pipeline.outputNode = this._sceneNode.add(this._bloomNode);
+  }
+
+  /**
+   * Enable or disable the bloom post-processing pass.
+   * Disabling bloom improves performance on low-end mobile devices.
+   * The pipeline output node is swapped at runtime (recompiles shaders once on first switch).
+   */
+  setBloomEnabled(enabled: boolean): void {
+    if (this._bloomEnabled === enabled) return;
+    this._bloomEnabled = enabled;
+    this.pipeline.outputNode = enabled
+      ? this._sceneNode.add(this._bloomNode)
+      : this._sceneNode;
+  }
+
+  get bloomEnabled(): boolean {
+    return this._bloomEnabled;
   }
 
   /** Call once per frame in the animation loop (replaces renderer.render). */

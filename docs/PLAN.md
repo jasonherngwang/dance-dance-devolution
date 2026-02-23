@@ -741,7 +741,7 @@ Acceptance criteria:
 
 **Issue 34**
 
-Status: READY
+Status: COMPLETE
 
 Task: Mobile performance optimization
 
@@ -753,10 +753,10 @@ Optimize for mobile devices (PRD Section 11.3, 13):
 - Monitor FPS and adaptively reduce quality
 
 Acceptance criteria:
-- [ ] Mobile gets reduced particle counts
-- [ ] FPS stays above 30 on mobile
-- [ ] Bloom is disabled if performance is poor
-- [ ] Desktop experience is unaffected
+- [x] Mobile gets reduced particle counts
+- [x] FPS stays above 30 on mobile
+- [x] Bloom is disabled if performance is poor
+- [x] Desktop experience is unaffected
 
 ---
 

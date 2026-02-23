@@ -156,7 +156,9 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     // For YouTube songs, use alpha=true so the canvas is transparent and the
     // video below shows through.  For local/demo, keep alpha off (solid dark bg).
     const renderer = new THREE.WebGPURenderer({ antialias: true, alpha: isYouTubeGame });
-    renderer.setPixelRatio(window.devicePixelRatio);
+    // Cap pixel ratio on mobile to reduce GPU fill-rate cost.
+    // High-DPI mobile screens (3× DPR) would otherwise render 9× the pixels.
+    renderer.setPixelRatio(isMobile ? Math.min(window.devicePixelRatio, 1.5) : window.devicePixelRatio);
     renderer.setSize(container.clientWidth, container.clientHeight);
     container.appendChild(renderer.domElement);
 
@@ -262,6 +264,21 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     scrollManager.loadChart(notes);
     const receptorRenderer = new ReceptorRenderer(scene);
     const hitEffects       = new HitEffectRenderer(scene);
+
+    // -----------------------------------------------------------------------
+    // Mobile performance optimizations (Issue 34)
+    // -----------------------------------------------------------------------
+    if (isMobile) {
+      // Halve particle counts on all touch devices
+      hitEffects.setMobileFactor(0.5);
+      // Start with bloom disabled on mobile — adaptive logic may re-enable it
+      // if the device proves capable (FPS > 45 after initial warm-up)
+      postProcessing.setBloomEnabled(false);
+    }
+
+    // FPS tracking for adaptive quality (checked every 60 frames on mobile)
+    let fpsFrameCount  = 0;
+    let fpsWindowStart = performance.now();
 
     // -----------------------------------------------------------------------
     // Combo tracking
@@ -525,6 +542,26 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
         const score    = useGameStore.getState().score;
         const progress = chartDuration > 0 ? Math.min(songTime / chartDuration, 1) : 0;
         hudUpdateRef.current(score, progress);
+      }
+
+      // Adaptive quality: monitor FPS on mobile and toggle bloom accordingly.
+      // Sample over 60-frame windows to avoid reacting to transient dips.
+      if (isMobile) {
+        fpsFrameCount++;
+        if (fpsFrameCount >= 60) {
+          const elapsed = (performance.now() - fpsWindowStart) / 1000;
+          const fps = elapsed > 0 ? fpsFrameCount / elapsed : 60;
+          fpsFrameCount  = 0;
+          fpsWindowStart = performance.now();
+
+          if (fps < 30 && postProcessing.bloomEnabled) {
+            // FPS is poor — disable bloom to recover performance
+            postProcessing.setBloomEnabled(false);
+          } else if (fps >= 45 && !postProcessing.bloomEnabled) {
+            // FPS recovered — re-enable bloom
+            postProcessing.setBloomEnabled(true);
+          }
+        }
       }
 
       postProcessing.render();

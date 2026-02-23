@@ -3,8 +3,11 @@ import * as THREE from 'three/webgpu';
 import { ArrowRenderer } from '@/rendering/ArrowRenderer';
 import { ReceptorRenderer } from '@/rendering/ReceptorRenderer';
 import { ArrowScrollManager } from '@/rendering/ArrowScrollManager';
+import { HitEffectRenderer } from '@/rendering/HitEffectRenderer';
 import { TimingEngine } from '@/engine/TimingEngine';
-import type { Direction, Note } from '@/types';
+import { InputHandler } from '@/engine/InputHandler';
+import { JudgmentDisplay } from './JudgmentDisplay';
+import type { Direction, JudgmentType, Note } from '@/types';
 
 function isWebGPUAvailable(): boolean {
   return typeof navigator !== 'undefined' && 'gpu' in navigator && navigator.gpu !== null;
@@ -43,6 +46,9 @@ export function GameCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
   const webGPUSupported = isWebGPUAvailable();
 
+  // Stable ref for the judgment text trigger — set by JudgmentDisplay on mount
+  const judgmentTriggerRef = useRef<((j: JudgmentType, d: Direction) => void) | null>(null);
+
   useEffect(() => {
     if (!webGPUSupported || !containerRef.current) return;
 
@@ -76,9 +82,9 @@ export function GameCanvas() {
       const w = container.clientWidth;
       const h = container.clientHeight;
       const a = w / h;
-      camera.left = (-VIEW_HEIGHT * a) / 2;
-      camera.right = (VIEW_HEIGHT * a) / 2;
-      camera.top = VIEW_HEIGHT / 2;
+      camera.left   = (-VIEW_HEIGHT * a) / 2;
+      camera.right  = (VIEW_HEIGHT * a) / 2;
+      camera.top    = VIEW_HEIGHT / 2;
       camera.bottom = -VIEW_HEIGHT / 2;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
@@ -98,13 +104,12 @@ export function GameCanvas() {
     // -------------------------------------------------------------------------
     const arrowRenderer = new ArrowRenderer(scene);
     const scrollManager = new ArrowScrollManager(arrowRenderer);
-    scrollManager.scrollMultiplier = 2; // default DDR 2× speed
+    scrollManager.scrollMultiplier = 2;
     scrollManager.loadChart(DEMO_NOTES);
 
     // Report auto-misses to the timing engine so notes aren't re-judged
     scrollManager.onMiss = (noteIndex, dir) => {
       timingEngine.markJudged(noteIndex, dir);
-      console.debug(`[TimingEngine] Auto-miss: note ${noteIndex} dir=${dir}`);
     };
 
     // -------------------------------------------------------------------------
@@ -113,11 +118,37 @@ export function GameCanvas() {
     const receptorRenderer = new ReceptorRenderer(scene);
 
     // -------------------------------------------------------------------------
+    // Hit effects + particles (Issue 12)
+    // -------------------------------------------------------------------------
+    const hitEffects = new HitEffectRenderer(scene);
+
+    // -------------------------------------------------------------------------
+    // Keyboard input (Issue 9) — wired into timing engine + hit effects
+    // -------------------------------------------------------------------------
+    const inputHandler = new InputHandler();
+    inputHandler.enable();
+
+    inputHandler.onInput = (direction: Direction, timestamp: number) => {
+      const result = timingEngine.judge(direction, timestamp);
+      if (!result) return; // no note in window — empty press
+
+      const { judgment } = result;
+      hitEffects.triggerHitEffect(direction, judgment);
+      receptorRenderer.flashReceptor(direction, judgment);
+      judgmentTriggerRef.current?.(judgment, direction);
+    };
+
+    // -------------------------------------------------------------------------
     // Game loop — song clock driven by TimingEngine
     // -------------------------------------------------------------------------
     const loopStart = performance.now();
+    let lastFrameTime = performance.now();
 
     renderer.setAnimationLoop(() => {
+      const now = performance.now();
+      const dt = Math.min((now - lastFrameTime) / 1000, 0.05); // cap at 50ms to avoid spiral
+      lastFrameTime = now;
+
       const songTime = timingEngine.getCurrentTime();
 
       // Demo loop: restart when we reach the end of the chart
@@ -134,17 +165,26 @@ export function GameCanvas() {
       arrowRenderer.update();
 
       // Animate receptors (uses raw elapsed time for breathing frequency)
-      const realElapsed = (performance.now() - loopStart) / 1000;
+      const realElapsed = (now - loopStart) / 1000;
       receptorRenderer.update(realElapsed);
+
+      // Advance particle simulation — get camera shake offset for this frame
+      const { shakeX, shakeY } = hitEffects.update(dt);
+
+      // Apply shake offset to camera (base position is x=0, y=0)
+      camera.position.x = shakeX;
+      camera.position.y = shakeY;
 
       renderer.render(scene, camera);
     });
 
     return () => {
+      inputHandler.dispose();
       timingEngine.dispose();
       scrollManager.dispose();
       arrowRenderer.dispose();
       receptorRenderer.dispose();
+      hitEffects.dispose();
       renderer.setAnimationLoop(null);
       window.removeEventListener('resize', onResize);
       renderer.dispose();
@@ -169,5 +209,14 @@ export function GameCanvas() {
     );
   }
 
-  return <div ref={containerRef} className="h-full w-full overflow-hidden" />;
+  return (
+    <div className="relative h-full w-full overflow-hidden">
+      {/* Three.js canvas container */}
+      <div ref={containerRef} className="absolute inset-0" />
+      {/* HTML judgment text overlay */}
+      <JudgmentDisplay
+        onRegisterTrigger={(fn) => { judgmentTriggerRef.current = fn; }}
+      />
+    </div>
+  );
 }

@@ -47,3 +47,28 @@ html, body {
   width: 100%;
   height: 100%;
 }
+
+/* ---------------------------------------------------------------------------
+   Judgment text float-up animation (Issue 12)
+   --------------------------------------------------------------------------- */
+
+@keyframes judgment-float {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(0)   scale(1.4); }
+  15%  { opacity: 1; transform: translateX(-50%) translateY(-8px) scale(1.0); }
+  60%  { opacity: 1; transform: translateX(-50%) translateY(-24px) scale(1.0); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-60px) scale(0.85); }
+}
+
+.judgment-text {
+  animation: judgment-float 0.75s ease-out forwards;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: clamp(1rem, 2.5vw, 1.5rem);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-shadow:
+    0 0 8px currentColor,
+    0 0 20px currentColor,
+    0 2px 4px rgba(0, 0, 0, 0.8);
+  white-space: nowrap;
+  will-change: transform, opacity;
+}

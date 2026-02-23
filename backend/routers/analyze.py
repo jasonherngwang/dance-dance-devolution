@@ -6,10 +6,12 @@ Returns a job_id that can be polled via GET /api/status/:job_id.
 import asyncio
 import uuid
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 
 from models.job import JobState, JobStatus
 from services.job_queue import job_store, enqueue_job
+from services.ytdlp_service import get_video_id
+from services.cache import chart_cache
 
 router = APIRouter()
 
@@ -29,6 +31,24 @@ async def analyze(request: AnalyzeRequest) -> dict:
         raise HTTPException(status_code=400, detail="Only YouTube URLs are supported")
 
     job_id = str(uuid.uuid4())
+
+    # Check SQLite cache — skip re-processing if we already have this video
+    video_id = get_video_id(url)
+    if video_id and chart_cache.exists(video_id):
+        cached = chart_cache.get(video_id)
+        job = JobStatus(
+            job_id=job_id,
+            state=JobState.complete,
+            progress=100,
+            message="Chart loaded from cache",
+            video_id=video_id,
+            title=cached.title if cached else None,
+            artist=cached.artist if cached else None,
+            bpm=cached.bpm if cached else None,
+        )
+        job_store[job_id] = job
+        return {"job_id": job_id}
+
     job = JobStatus(
         job_id=job_id,
         state=JobState.pending,

@@ -717,7 +717,7 @@ Acceptance criteria:
 
 **Issue 33**
 
-Status: READY
+Status: COMPLETE
 
 Task: Mobile touch support
 
@@ -731,11 +731,11 @@ Add touch input for mobile devices (PRD Section 11):
 - Detect mobile via `navigator.maxTouchPoints > 0`
 
 Acceptance criteria:
-- [ ] Tapping the four zones registers correct directions
-- [ ] Touch latency is acceptable (no perceptible delay)
-- [ ] Page does not scroll or zoom during gameplay
-- [ ] Judgment windows are widened on touch devices
-- [ ] Layout adapts to mobile viewport
+- [x] Tapping the four zones registers correct directions
+- [x] Touch latency is acceptable (no perceptible delay)
+- [x] Page does not scroll or zoom during gameplay
+- [x] Judgment windows are widened on touch devices
+- [x] Layout adapts to mobile viewport
 
 ---
 

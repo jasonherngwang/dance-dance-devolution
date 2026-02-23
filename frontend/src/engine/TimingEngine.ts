@@ -93,6 +93,16 @@ export class TimingEngine {
   audioOffsetMs = 0;
 
   /**
+   * Additional leniency (milliseconds) added to both judgment windows for
+   * touch input devices.  Set to 30 on touch devices to compensate for
+   * the higher latency inherent in capacitive touch vs. mechanical keys.
+   *
+   * Applied symmetrically: Perfect window becomes ±(80+touchWindowBonus)ms,
+   * Great window becomes ±(140+touchWindowBonus)ms.  Default: 0.
+   */
+  touchWindowBonus = 0;
+
+  /**
    * Segment start offset in seconds.
    *
    * When an audio file has `segment_start > 0`, the audio element's
@@ -287,14 +297,17 @@ export class TimingEngine {
     // subtract the offset so on-time presses score as Perfect.
     const correctedOffsetMs = nearestRawOffsetMs - this.audioOffsetMs;
 
-    if (Math.abs(correctedOffsetMs) > GREAT_WINDOW_MS) {
+    const effectivePerfect = PERFECT_WINDOW_MS + this.touchWindowBonus;
+    const effectiveGreat   = GREAT_WINDOW_MS   + this.touchWindowBonus;
+
+    if (Math.abs(correctedOffsetMs) > effectiveGreat) {
       return null; // Arrow is outside the hit window — treat as empty press
     }
 
     nearest.judged = true;
 
     const judgment: JudgmentType =
-      Math.abs(correctedOffsetMs) <= PERFECT_WINDOW_MS ? 'perfect' : 'great';
+      Math.abs(correctedOffsetMs) <= effectivePerfect ? 'perfect' : 'great';
 
     return {
       hit: true,

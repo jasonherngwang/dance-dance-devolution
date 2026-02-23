@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three/webgpu';
 import { ArrowRenderer } from '@/rendering/ArrowRenderer';
 import { ReceptorRenderer } from '@/rendering/ReceptorRenderer';
@@ -10,6 +10,7 @@ import { TimingEngine } from '@/engine/TimingEngine';
 import { AudioPlayer } from '@/engine/AudioPlayer';
 import { YouTubePlayer } from '@/engine/YouTubePlayer';
 import { InputHandler } from '@/engine/InputHandler';
+import { TouchInputZones } from './TouchInputZones';
 import { JudgmentDisplay } from './JudgmentDisplay';
 import { ComboDisplay, getHypeLevel } from './ComboDisplay';
 import { HypeOverlay } from './HypeOverlay';
@@ -19,6 +20,11 @@ import { CountdownOverlay } from './CountdownOverlay';
 import type { CountdownPhase } from './CountdownOverlay';
 import { useGameStore } from '@/stores';
 import type { ChartData, Difficulty, Direction, JudgmentResult, JudgmentType, Note } from '@/types';
+
+/** Detect touch-primary devices */
+function isTouchDevice(): boolean {
+  return typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0;
+}
 
 function isWebGPUAvailable(): boolean {
   return typeof navigator !== 'undefined' && 'gpu' in navigator && navigator.gpu !== null;
@@ -85,6 +91,15 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
   const ytContainerRef = useRef<HTMLDivElement>(null);
   const webGPUSupported = isWebGPUAvailable();
 
+  // Mobile touch detection — stable across renders
+  const isMobile = isTouchDevice();
+
+  // Whether touch input is currently enabled (matches game state)
+  const [touchInputEnabled, setTouchInputEnabled] = useState(!chartData);
+
+  // Shared input handler ref so TouchInputZones can use the same callback
+  const inputHandlerCallbackRef = useRef<((direction: Direction, timestamp: number) => void) | null>(null);
+
   // ---- Imperative callback refs (set by child components on mount) ----
   const judgmentTriggerRef  = useRef<((j: JudgmentType, d: Direction) => void) | null>(null);
   const comboDisplayFnRef   = useRef<((combo: number, isBreak: boolean) => void) | null>(null);
@@ -110,6 +125,10 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
 
   useEffect(() => {
     if (!webGPUSupported || !containerRef.current) return;
+
+    // Reset touch input state for the new game session:
+    // demo mode enables touch immediately; real game enables at GO.
+    setTouchInputEnabled(!chartData);
 
     const container = containerRef.current;
 
@@ -177,6 +196,9 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
 
     const timingEngine = new TimingEngine();
     timingEngine.loadNotes(notes);
+    // Widen judgment windows by 30ms on touch devices to compensate for
+    // capacitive touch latency (Issue 33).
+    timingEngine.touchWindowBonus = isMobile ? 30 : 0;
 
     // -----------------------------------------------------------------------
     // Local audio setup (Issue 17)
@@ -316,7 +338,8 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     // Demo mode: enable immediately.  Real game: enabled at GO by the animation loop.
     if (!isRealGame) inputHandler.enable();
 
-    inputHandler.onInput = (direction: Direction, timestamp: number) => {
+    // Shared callback used by both keyboard InputHandler and TouchInputZones
+    const handleInput = (direction: Direction, timestamp: number) => {
       // Fallback: start audio on first keypress if it wasn't started at GO!
       // (handles browsers that block autoplay even after a prior user gesture).
       if (audioPlayer && !audioStarted) {
@@ -387,6 +410,12 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
       }
     };
 
+    // Wire the shared handler to the keyboard InputHandler
+    inputHandler.onInput = handleInput;
+
+    // Wire the shared handler to the TouchInputZones ref (used by the React component)
+    inputHandlerCallbackRef.current = handleInput;
+
     // -----------------------------------------------------------------------
     // Game loop
     // -----------------------------------------------------------------------
@@ -430,6 +459,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
           if (songTime >= 0) {
             inputEnabled = true;
             inputHandler.enable();
+            setTouchInputEnabled(true);
             useGameStore.getState().startPlaying();
 
             if (audioPlayer && !audioStarted) {
@@ -587,6 +617,16 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
 
       {/* 3-2-1-GO countdown overlay — only shown in real gameplay */}
       <CountdownOverlay isActive={isRealGame} onRegisterUpdate={onRegisterCountdown} />
+
+      {/* Touch input zones — only shown on touch devices */}
+      {isMobile && (
+        <TouchInputZones
+          enabled={touchInputEnabled}
+          onInput={(direction, timestamp) => {
+            inputHandlerCallbackRef.current?.(direction, timestamp);
+          }}
+        />
+      )}
     </div>
   );
 }

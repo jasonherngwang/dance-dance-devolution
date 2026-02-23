@@ -5,11 +5,13 @@ import { ReceptorRenderer } from '@/rendering/ReceptorRenderer';
 import { ArrowScrollManager } from '@/rendering/ArrowScrollManager';
 import { HitEffectRenderer } from '@/rendering/HitEffectRenderer';
 import { BackgroundRenderer } from '@/rendering/BackgroundRenderer';
+import { PostProcessingManager } from '@/rendering/PostProcessingManager';
 import { TimingEngine } from '@/engine/TimingEngine';
 import { InputHandler } from '@/engine/InputHandler';
 import { JudgmentDisplay } from './JudgmentDisplay';
 import { ComboDisplay, getHypeLevel } from './ComboDisplay';
 import { HypeOverlay } from './HypeOverlay';
+import { ScreenEffects } from './ScreenEffects';
 import type { Direction, JudgmentType, Note } from '@/types';
 
 function isWebGPUAvailable(): boolean {
@@ -60,6 +62,9 @@ export function GameCanvas() {
   const hypeOverlayFnRef  = useRef<((combo: number, isBreak: boolean) => void) | null>(null);
   const chromaticTriggerRef = useRef<(() => void) | null>(null);
 
+  // Screen effects: white flash on Perfect, vignette is always-on CSS
+  const flashTriggerRef = useRef<(() => void) | null>(null);
+
   useEffect(() => {
     if (!webGPUSupported || !containerRef.current) return;
 
@@ -109,6 +114,11 @@ export function GameCanvas() {
     const timingEngine = new TimingEngine();
     timingEngine.loadNotes(DEMO_NOTES);
     timingEngine.play(0); // start free-running clock at t=0
+
+    // -------------------------------------------------------------------------
+    // Post-processing pipeline (Issue 15) — bloom via WebGPU RenderPipeline
+    // -------------------------------------------------------------------------
+    const postProcessing = new PostProcessingManager(renderer, scene, camera);
 
     // -------------------------------------------------------------------------
     // Background visuals (Issue 14) — rendered behind all game elements at z=-1
@@ -209,6 +219,11 @@ export function GameCanvas() {
       hitEffects.triggerHitEffect(direction, judgment);
       receptorRenderer.flashReceptor(direction, judgment);
       judgmentTriggerRef.current?.(judgment, direction);
+
+      // Screen flash on Perfect (Issue 15)
+      if (judgment === 'perfect') {
+        flashTriggerRef.current?.();
+      }
     };
 
     // -------------------------------------------------------------------------
@@ -261,7 +276,7 @@ export function GameCanvas() {
       camera.position.x = shakeX;
       camera.position.y = shakeY;
 
-      renderer.render(scene, camera);
+      postProcessing.render();
     });
 
     return () => {
@@ -272,6 +287,7 @@ export function GameCanvas() {
       receptorRenderer.dispose();
       hitEffects.dispose();
       background.dispose();
+      postProcessing.dispose();
       renderer.setAnimationLoop(null);
       window.removeEventListener('resize', onResize);
       renderer.dispose();
@@ -300,6 +316,10 @@ export function GameCanvas() {
     <div className="relative h-full w-full overflow-hidden">
       {/* Three.js canvas container */}
       <div ref={containerRef} className="absolute inset-0" />
+      {/* Post-processing CSS effects: vignette + Perfect screen flash (Issue 15) */}
+      <ScreenEffects
+        onRegisterFlash={(fn) => { flashTriggerRef.current = fn; }}
+      />
       {/* Screen border glow + chromatic aberration (behind combo and judgment text) */}
       <HypeOverlay
         onRegisterUpdate={(fn) => { hypeOverlayFnRef.current = fn; }}

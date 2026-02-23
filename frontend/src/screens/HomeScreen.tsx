@@ -1,8 +1,14 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGameStore } from '@/stores';
-import { HomeBackground } from '@/components/HomeBackground';
 import { AudioOffsetPanel } from '@/components/AudioOffsetPanel';
+
+// Lazy-load HomeBackground so the Three.js/WebGPU bundle is NOT included in the
+// initial HomeScreen chunk.  The static CSS grid renders immediately; the 3D
+// canvas loads after the first paint without blocking the UI.
+const HomeBackground = lazy(() =>
+  import('@/components/HomeBackground').then(m => ({ default: m.HomeBackground }))
+);
 import type { CatalogEntry } from '@/types/catalog';
 import type { ChartData, Difficulty } from '@/types';
 
@@ -84,7 +90,9 @@ export default function HomeScreen() {
         }}
       />
       {/* ── WebGPU animated particle background (lazy-loaded) ─────────────── */}
-      <HomeBackground />
+      <Suspense fallback={null}>
+        <HomeBackground />
+      </Suspense>
       {/* Vignette over grid — darkens edges, keeps center readable */}
       <div
         className="fixed inset-0 pointer-events-none"

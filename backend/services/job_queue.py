@@ -19,6 +19,9 @@ from services.ytdlp_service import ExtractionError
 from services import librosa_service
 from services.librosa_service import AnalysisError
 from services import segment_service
+from services import chart_service
+from services.chart_service import ChartGenerationError
+from services.cache import chart_cache
 
 # In-memory job store (job_id → JobStatus)
 job_store: Dict[str, JobStatus] = {}
@@ -74,18 +77,28 @@ async def _run_pipeline(job_id: str, url: str) -> None:
             )
 
             # ── Stage 4: Generate chart ───────────────────────────────────────
-            # TODO (Issue 28): chart_data = chart_service.generate(analysis, segment)
-            # from services.cache import chart_cache
-            # chart_cache.save(result.video_id, chart_data)
-            # job.state = JobState.complete
-            # job.progress = 100
-            # job.message = "Chart ready!"
+            job.state = JobState.generating
+            job.progress = 80
+            job.message = "Generating chart…"
 
-            # Stage 4 not yet implemented — mark as error until Issue 28 lands
-            job.state = JobState.error
-            job.progress = 75
-            job.message = "Segment selected; chart generation pending (Issue 28)"
-            job.error = "chart_generation_not_implemented"
+            chart_data = await chart_service.generate(
+                analysis=analysis,
+                segment=segment,
+                title=result.title,
+                artist=result.artist,
+                audio_url="",  # custom songs stream via YouTube IFrame
+            )
+
+            # Persist to SQLite cache
+            chart_cache.save(result.video_id, chart_data)
+
+            job.state = JobState.complete
+            job.progress = 100
+            job.message = (
+                f"Chart ready! "
+                f"{chart_data.charts['easy'].note_count} easy / "
+                f"{chart_data.charts['hard'].note_count} hard notes"
+            )
 
         except ExtractionError as exc:
             job.state = JobState.error
@@ -98,6 +111,12 @@ async def _run_pipeline(job_id: str, url: str) -> None:
             job.progress = 30
             job.message = str(exc)
             job.error = "analysis_failed"
+
+        except ChartGenerationError as exc:
+            job.state = JobState.error
+            job.progress = 75
+            job.message = str(exc)
+            job.error = "chart_generation_failed"
 
         except Exception as exc:
             job.state = JobState.error

@@ -4,6 +4,7 @@ import { ArrowRenderer } from '@/rendering/ArrowRenderer';
 import { ReceptorRenderer } from '@/rendering/ReceptorRenderer';
 import { ArrowScrollManager } from '@/rendering/ArrowScrollManager';
 import { HitEffectRenderer } from '@/rendering/HitEffectRenderer';
+import { BackgroundRenderer } from '@/rendering/BackgroundRenderer';
 import { TimingEngine } from '@/engine/TimingEngine';
 import { InputHandler } from '@/engine/InputHandler';
 import { JudgmentDisplay } from './JudgmentDisplay';
@@ -110,6 +111,15 @@ export function GameCanvas() {
     timingEngine.play(0); // start free-running clock at t=0
 
     // -------------------------------------------------------------------------
+    // Background visuals (Issue 14) — rendered behind all game elements at z=-1
+    // -------------------------------------------------------------------------
+    const background = new BackgroundRenderer(scene);
+
+    // Beat pulse: fire on every 0.5-second boundary of the demo chart (120 BPM feel)
+    const BEAT_INTERVAL = 0.5; // seconds
+    let lastBeatTime = -1;
+
+    // -------------------------------------------------------------------------
     // Arrow system (Issue 5) + Scroll manager (Issue 7)
     // -------------------------------------------------------------------------
     const arrowRenderer = new ArrowRenderer(scene);
@@ -132,10 +142,11 @@ export function GameCanvas() {
     // -------------------------------------------------------------------------
     const comboRef = { current: 0 };
 
-    /** Notify both combo-display and hype-overlay of a combo change. */
+    /** Notify both combo-display and hype-overlay of a combo change, and sync background. */
     function notifyCombo(combo: number, isBreak: boolean) {
       comboDisplayFnRef.current?.(combo, isBreak);
       hypeOverlayFnRef.current?.(combo, isBreak);
+      background.setComboLevel(getHypeLevel(combo));
     }
 
     /** Reset combo for demo-loop restart (no break flash). */
@@ -221,14 +232,26 @@ export function GameCanvas() {
         scrollManager.loadChart(DEMO_NOTES);
       }
 
+      // Raw elapsed time for oscillation-based animations
+      const realElapsed = (now - loopStart) / 1000;
+
+      // Beat detection for background pulse (fires on each BEAT_INTERVAL boundary)
+      const beatIndex = Math.floor(songTime / BEAT_INTERVAL);
+      if (beatIndex !== lastBeatTime) {
+        lastBeatTime = beatIndex;
+        background.pulseOnBeat();
+      }
+
+      // Background layer (grid, ambient particles, beat pulse)
+      background.update(dt, realElapsed);
+
       // Update scroll system (sets positions/opacities on arrowRenderer)
       scrollManager.update(songTime);
 
       // Flush dirty arrow instances to GPU
       arrowRenderer.update();
 
-      // Animate receptors (uses raw elapsed time for breathing frequency)
-      const realElapsed = (now - loopStart) / 1000;
+      // Animate receptors
       receptorRenderer.update(realElapsed);
 
       // Advance particle simulation — get camera shake offset for this frame
@@ -248,6 +271,7 @@ export function GameCanvas() {
       arrowRenderer.dispose();
       receptorRenderer.dispose();
       hitEffects.dispose();
+      background.dispose();
       renderer.setAnimationLoop(null);
       window.removeEventListener('resize', onResize);
       renderer.dispose();

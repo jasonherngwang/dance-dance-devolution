@@ -783,7 +783,7 @@ Acceptance criteria:
 
 **Issue 36**
 
-Status: READY
+Status: COMPLETE
 
 Task: Audio offset slider
 
@@ -794,10 +794,10 @@ Add user-configurable sync offset (PRD Section 10.3):
 - Applied as constant offset to all judgment calculations in timing engine
 
 Acceptance criteria:
-- [ ] Slider adjusts offset between -200ms and +200ms
-- [ ] Offset persists across page reloads
-- [ ] Offset is applied to judgment timing
-- [ ] Default is 0ms
+- [x] Slider adjusts offset between -200ms and +200ms
+- [x] Offset persists across page reloads
+- [x] Offset is applied to judgment timing
+- [x] Default is 0ms
 
 ---
 

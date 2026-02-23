@@ -11,6 +11,7 @@ import { AudioPlayer } from '@/engine/AudioPlayer';
 import { YouTubePlayer } from '@/engine/YouTubePlayer';
 import { InputHandler } from '@/engine/InputHandler';
 import { TouchInputZones } from './TouchInputZones';
+import { getStoredAudioOffset } from './AudioOffsetPanel';
 import { JudgmentDisplay } from './JudgmentDisplay';
 import { ComboDisplay, getHypeLevel } from './ComboDisplay';
 import { HypeOverlay } from './HypeOverlay';
@@ -198,6 +199,8 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
 
     const timingEngine = new TimingEngine();
     timingEngine.loadNotes(notes);
+    // User-configurable audio sync offset (Issue 36), persisted in localStorage.
+    timingEngine.audioOffsetMs = getStoredAudioOffset();
     // Widen judgment windows by 30ms on touch devices to compensate for
     // capacitive touch latency (Issue 33).
     timingEngine.touchWindowBonus = isMobile ? 30 : 0;

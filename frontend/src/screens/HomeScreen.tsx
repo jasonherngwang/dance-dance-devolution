@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGameStore } from '@/stores';
 import { HomeBackground } from '@/components/HomeBackground';
+import { AudioOffsetPanel } from '@/components/AudioOffsetPanel';
 import type { CatalogEntry } from '@/types/catalog';
 import type { ChartData, Difficulty } from '@/types';
 
@@ -21,6 +22,7 @@ export default function HomeScreen() {
   // Cache: chart_url → ChartData
   const [charts, setCharts] = useState<Record<string, ChartData>>({});
   const [ytUrl, setYtUrl] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Load catalog on mount, then pre-fetch each song's chart
   useEffect(() => {
@@ -92,6 +94,32 @@ export default function HomeScreen() {
           backgroundSize: '100% 4px',
         }}
       />
+
+      {/* ── Settings panel (modal) ─────────────────────────────────────────── */}
+      {settingsOpen && <AudioOffsetPanel onClose={() => setSettingsOpen(false)} />}
+
+      {/* ── Settings gear button (top-right) ──────────────────────────────── */}
+      <button
+        className="fixed top-4 right-4 z-30 w-9 h-9 flex items-center justify-center text-lg transition-all duration-150"
+        style={{
+          color: 'rgba(255,255,255,0.3)',
+          border: '1px solid rgba(255,255,255,0.1)',
+          background: 'rgba(8,8,16,0.6)',
+          cursor: 'pointer',
+        }}
+        onClick={() => setSettingsOpen(true)}
+        aria-label="Open settings"
+        onMouseEnter={e => {
+          (e.currentTarget as HTMLElement).style.color = '#00ffff';
+          (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,255,255,0.35)';
+        }}
+        onMouseLeave={e => {
+          (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.3)';
+          (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.1)';
+        }}
+      >
+        ⚙
+      </button>
 
       {/* ── Page content ──────────────────────────────────────────────────── */}
       <div className="relative z-10 flex flex-col items-center px-4 pt-16 pb-24 min-h-full">

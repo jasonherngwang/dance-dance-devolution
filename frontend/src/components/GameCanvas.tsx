@@ -2,28 +2,41 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three/webgpu';
 import { ArrowRenderer } from '@/rendering/ArrowRenderer';
 import { ReceptorRenderer } from '@/rendering/ReceptorRenderer';
-import type { Direction } from '@/types';
+import { ArrowScrollManager } from '@/rendering/ArrowScrollManager';
+import type { Direction, Note } from '@/types';
 
 function isWebGPUAvailable(): boolean {
   return typeof navigator !== 'undefined' && 'gpu' in navigator && navigator.gpu !== null;
 }
 
-// DDR column layout — world-space X positions, 1-unit apart
-const COLUMNS: { dir: Direction; x: number }[] = [
-  { dir: 'left', x: -1.5 },
-  { dir: 'down', x: -0.5 },
-  { dir: 'up', x: 0.5 },
-  { dir: 'right', x: 1.5 },
-];
+// ---------------------------------------------------------------------------
+// Demo chart — cycles through all four directions, 1 note every 0.5 s for 16 s
+// ---------------------------------------------------------------------------
+const DEMO_DURATION = 16; // seconds before looping
+const DEMO_DIRS: Direction[] = ['left', 'down', 'up', 'right'];
 
-// Demo flash sequence: alternate perfect/great across all four receptors
-const DEMO_FLASH_INTERVAL = 1.4; // seconds between flashes
-const DEMO_SEQUENCE: Array<{ dir: Direction; judgment: 'perfect' | 'great' }> = [
-  { dir: 'left',  judgment: 'perfect' },
-  { dir: 'down',  judgment: 'great'   },
-  { dir: 'up',    judgment: 'perfect' },
-  { dir: 'right', judgment: 'great'   },
-];
+function buildDemoNotes(): Note[] {
+  const notes: Note[] = [];
+  // Quarter-note pattern at 0.5-second intervals
+  for (let i = 0; i * 0.5 < DEMO_DURATION; i++) {
+    notes.push({
+      time: i * 0.5,
+      type: 'tap',
+      direction: DEMO_DIRS[i % DEMO_DIRS.length],
+    });
+  }
+  // Add a few jumps (two simultaneous arrows) at every 4-note boundary
+  for (let i = 4; i * 0.5 < DEMO_DURATION; i += 8) {
+    notes.push({
+      time: i * 0.5,
+      type: 'tap',
+      direction: ['left', 'right'],
+    });
+  }
+  return notes.sort((a, b) => a.time - b.time);
+}
+
+const DEMO_NOTES = buildDemoNotes();
 
 export function GameCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -73,57 +86,54 @@ export function GameCanvas() {
     window.addEventListener('resize', onResize);
 
     // -------------------------------------------------------------------------
-    // Arrow system — Issue 5 demo
+    // Arrow system (Issue 5) + Scroll manager (Issue 7)
     // -------------------------------------------------------------------------
     const arrowRenderer = new ArrowRenderer(scene);
+    const scrollManager = new ArrowScrollManager(arrowRenderer);
+    scrollManager.scrollMultiplier = 2; // default DDR 2× speed
+    scrollManager.loadChart(DEMO_NOTES);
 
-    // Show one full-brightness arrow per direction at y = 0
-    for (const { dir, x } of COLUMNS) {
-      const id = arrowRenderer.allocate(dir);
-      if (id >= 0) {
-        arrowRenderer.setPosition(dir, id, x, 0);
-        arrowRenderer.setOpacity(dir, id, 1.0);
-      }
-    }
-
-    // Show a second set at y = -2 with dimmed opacity to demonstrate pool + opacity
-    for (const { dir, x } of COLUMNS) {
-      const id = arrowRenderer.allocate(dir);
-      if (id >= 0) {
-        arrowRenderer.setPosition(dir, id, x, -2);
-        arrowRenderer.setOpacity(dir, id, 0.35);
-      }
-    }
-
-    arrowRenderer.update();
+    // Log auto-misses so the acceptance criteria can be verified in DevTools
+    scrollManager.onMiss = (noteIndex, dir) => {
+      console.debug(`[ArrowScrollManager] Auto-miss: note ${noteIndex} dir=${dir}`);
+    };
 
     // -------------------------------------------------------------------------
-    // Receptor system — Issue 6
+    // Receptor system (Issue 6)
     // -------------------------------------------------------------------------
     const receptorRenderer = new ReceptorRenderer(scene);
 
-    // Demo state: cycle flash sequence to show perfect vs great visuals
-    let lastFlashTime = 0;
-    let flashIndex = 0;
+    // -------------------------------------------------------------------------
+    // Simulated song clock — loops over DEMO_DURATION
+    // -------------------------------------------------------------------------
+    const clockStart = performance.now();
+    let prevSongTime = -1;
 
     // Game loop
     renderer.setAnimationLoop((msTime) => {
-      const t = (msTime as number) / 1000; // seconds
+      const realElapsed = ((msTime as number) - clockStart) / 1000;
+      const songTime = realElapsed % DEMO_DURATION;
 
-      // Demo: fire a receptor flash every DEMO_FLASH_INTERVAL seconds
-      if (t - lastFlashTime > DEMO_FLASH_INTERVAL) {
-        lastFlashTime = t;
-        const entry = DEMO_SEQUENCE[flashIndex % DEMO_SEQUENCE.length];
-        receptorRenderer.flashReceptor(entry.dir, entry.judgment);
-        flashIndex++;
+      // Detect loop wrap → reload chart so nextNoteIndex resets
+      if (songTime < prevSongTime) {
+        scrollManager.loadChart(DEMO_NOTES);
       }
+      prevSongTime = songTime;
 
+      // Update scroll system (sets positions/opacities on arrowRenderer)
+      scrollManager.update(songTime);
+
+      // Flush dirty arrow instances to GPU
       arrowRenderer.update();
-      receptorRenderer.update(t);
+
+      // Animate receptors
+      receptorRenderer.update(realElapsed);
+
       renderer.render(scene, camera);
     });
 
     return () => {
+      scrollManager.dispose();
       arrowRenderer.dispose();
       receptorRenderer.dispose();
       renderer.setAnimationLoop(null);

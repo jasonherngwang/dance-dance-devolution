@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three/webgpu';
 import { ArrowRenderer } from '@/rendering/ArrowRenderer';
+import { ReceptorRenderer } from '@/rendering/ReceptorRenderer';
 import type { Direction } from '@/types';
 
 function isWebGPUAvailable(): boolean {
@@ -13,6 +14,15 @@ const COLUMNS: { dir: Direction; x: number }[] = [
   { dir: 'down', x: -0.5 },
   { dir: 'up', x: 0.5 },
   { dir: 'right', x: 1.5 },
+];
+
+// Demo flash sequence: alternate perfect/great across all four receptors
+const DEMO_FLASH_INTERVAL = 1.4; // seconds between flashes
+const DEMO_SEQUENCE: Array<{ dir: Direction; judgment: 'perfect' | 'great' }> = [
+  { dir: 'left',  judgment: 'perfect' },
+  { dir: 'down',  judgment: 'great'   },
+  { dir: 'up',    judgment: 'perfect' },
+  { dir: 'right', judgment: 'great'   },
 ];
 
 export function GameCanvas() {
@@ -87,14 +97,35 @@ export function GameCanvas() {
 
     arrowRenderer.update();
 
+    // -------------------------------------------------------------------------
+    // Receptor system — Issue 6
+    // -------------------------------------------------------------------------
+    const receptorRenderer = new ReceptorRenderer(scene);
+
+    // Demo state: cycle flash sequence to show perfect vs great visuals
+    let lastFlashTime = 0;
+    let flashIndex = 0;
+
     // Game loop
-    renderer.setAnimationLoop(() => {
-      arrowRenderer.update(); // no-op when nothing is dirty
+    renderer.setAnimationLoop((msTime) => {
+      const t = (msTime as number) / 1000; // seconds
+
+      // Demo: fire a receptor flash every DEMO_FLASH_INTERVAL seconds
+      if (t - lastFlashTime > DEMO_FLASH_INTERVAL) {
+        lastFlashTime = t;
+        const entry = DEMO_SEQUENCE[flashIndex % DEMO_SEQUENCE.length];
+        receptorRenderer.flashReceptor(entry.dir, entry.judgment);
+        flashIndex++;
+      }
+
+      arrowRenderer.update();
+      receptorRenderer.update(t);
       renderer.render(scene, camera);
     });
 
     return () => {
       arrowRenderer.dispose();
+      receptorRenderer.dispose();
       renderer.setAnimationLoop(null);
       window.removeEventListener('resize', onResize);
       renderer.dispose();

@@ -3,6 +3,7 @@ import * as THREE from 'three/webgpu';
 import { ArrowRenderer } from '@/rendering/ArrowRenderer';
 import { ReceptorRenderer } from '@/rendering/ReceptorRenderer';
 import { ArrowScrollManager } from '@/rendering/ArrowScrollManager';
+import { TimingEngine } from '@/engine/TimingEngine';
 import type { Direction, Note } from '@/types';
 
 function isWebGPUAvailable(): boolean {
@@ -86,6 +87,13 @@ export function GameCanvas() {
     window.addEventListener('resize', onResize);
 
     // -------------------------------------------------------------------------
+    // Timing engine (Issue 8) — drives the song clock
+    // -------------------------------------------------------------------------
+    const timingEngine = new TimingEngine();
+    timingEngine.loadNotes(DEMO_NOTES);
+    timingEngine.play(0); // start free-running clock at t=0
+
+    // -------------------------------------------------------------------------
     // Arrow system (Issue 5) + Scroll manager (Issue 7)
     // -------------------------------------------------------------------------
     const arrowRenderer = new ArrowRenderer(scene);
@@ -93,9 +101,10 @@ export function GameCanvas() {
     scrollManager.scrollMultiplier = 2; // default DDR 2× speed
     scrollManager.loadChart(DEMO_NOTES);
 
-    // Log auto-misses so the acceptance criteria can be verified in DevTools
+    // Report auto-misses to the timing engine so notes aren't re-judged
     scrollManager.onMiss = (noteIndex, dir) => {
-      console.debug(`[ArrowScrollManager] Auto-miss: note ${noteIndex} dir=${dir}`);
+      timingEngine.markJudged(noteIndex, dir);
+      console.debug(`[TimingEngine] Auto-miss: note ${noteIndex} dir=${dir}`);
     };
 
     // -------------------------------------------------------------------------
@@ -104,21 +113,19 @@ export function GameCanvas() {
     const receptorRenderer = new ReceptorRenderer(scene);
 
     // -------------------------------------------------------------------------
-    // Simulated song clock — loops over DEMO_DURATION
+    // Game loop — song clock driven by TimingEngine
     // -------------------------------------------------------------------------
-    const clockStart = performance.now();
-    let prevSongTime = -1;
+    const loopStart = performance.now();
 
-    // Game loop
-    renderer.setAnimationLoop((msTime) => {
-      const realElapsed = ((msTime as number) - clockStart) / 1000;
-      const songTime = realElapsed % DEMO_DURATION;
+    renderer.setAnimationLoop(() => {
+      const songTime = timingEngine.getCurrentTime();
 
-      // Detect loop wrap → reload chart so nextNoteIndex resets
-      if (songTime < prevSongTime) {
+      // Demo loop: restart when we reach the end of the chart
+      if (songTime >= DEMO_DURATION) {
+        timingEngine.play(0);
+        timingEngine.resetJudgments();
         scrollManager.loadChart(DEMO_NOTES);
       }
-      prevSongTime = songTime;
 
       // Update scroll system (sets positions/opacities on arrowRenderer)
       scrollManager.update(songTime);
@@ -126,13 +133,15 @@ export function GameCanvas() {
       // Flush dirty arrow instances to GPU
       arrowRenderer.update();
 
-      // Animate receptors
+      // Animate receptors (uses raw elapsed time for breathing frequency)
+      const realElapsed = (performance.now() - loopStart) / 1000;
       receptorRenderer.update(realElapsed);
 
       renderer.render(scene, camera);
     });
 
     return () => {
+      timingEngine.dispose();
       scrollManager.dispose();
       arrowRenderer.dispose();
       receptorRenderer.dispose();

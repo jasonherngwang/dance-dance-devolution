@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import * as THREE from 'three/webgpu';
 import { ArrowRenderer } from '@/rendering/ArrowRenderer';
 import { ReceptorRenderer } from '@/rendering/ReceptorRenderer';
@@ -12,21 +12,23 @@ import { JudgmentDisplay } from './JudgmentDisplay';
 import { ComboDisplay, getHypeLevel } from './ComboDisplay';
 import { HypeOverlay } from './HypeOverlay';
 import { ScreenEffects } from './ScreenEffects';
-import type { Direction, JudgmentType, Note } from '@/types';
+import { GameplayHUD } from './GameplayHUD';
+import { useGameStore } from '@/stores';
+import type { ChartData, Difficulty, Direction, JudgmentResult, JudgmentType, Note } from '@/types';
 
 function isWebGPUAvailable(): boolean {
   return typeof navigator !== 'undefined' && 'gpu' in navigator && navigator.gpu !== null;
 }
 
 // ---------------------------------------------------------------------------
-// Demo chart — cycles through all four directions, 1 note every 0.5 s for 16 s
+// Demo chart — used when no real chart data is provided
 // ---------------------------------------------------------------------------
 const DEMO_DURATION = 16; // seconds before looping
+const DEMO_BPM = 120;
 const DEMO_DIRS: Direction[] = ['left', 'down', 'up', 'right'];
 
 function buildDemoNotes(): Note[] {
   const notes: Note[] = [];
-  // Quarter-note pattern at 0.5-second intervals
   for (let i = 0; i * 0.5 < DEMO_DURATION; i++) {
     notes.push({
       time: i * 0.5,
@@ -34,7 +36,7 @@ function buildDemoNotes(): Note[] {
       direction: DEMO_DIRS[i % DEMO_DIRS.length],
     });
   }
-  // Add a few jumps (two simultaneous arrows) at every 4-note boundary
+  // A few jumps at every 4-note boundary
   for (let i = 4; i * 0.5 < DEMO_DURATION; i += 8) {
     notes.push({
       time: i * 0.5,
@@ -47,40 +49,89 @@ function buildDemoNotes(): Note[] {
 
 const DEMO_NOTES = buildDemoNotes();
 
+/** Total judgeable direction slots for a note list (flattened). */
+function countJudgeableNotes(notes: Note[]): number {
+  return notes.reduce(
+    (acc, note) => acc + (Array.isArray(note.direction) ? note.direction.length : 1),
+    0,
+  );
+}
+
 // Combo milestones that trigger chromatic-aberration flash
 const COMBO_MILESTONES = [25, 50, 100];
 
-export function GameCanvas() {
+// ---------------------------------------------------------------------------
+// Props
+// ---------------------------------------------------------------------------
+
+interface GameCanvasProps {
+  /** Real chart data from the store; null = show demo loop */
+  chartData: ChartData | null;
+  /** Difficulty to play; ignored when chartData is null */
+  difficulty: Difficulty;
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const webGPUSupported = isWebGPUAvailable();
 
-  // Stable ref for the judgment text trigger — set by JudgmentDisplay on mount
-  const judgmentTriggerRef = useRef<((j: JudgmentType, d: Direction) => void) | null>(null);
-
-  // Combo display + hype overlay callbacks (set by child components on mount)
-  const comboDisplayFnRef = useRef<((combo: number, isBreak: boolean) => void) | null>(null);
-  const hypeOverlayFnRef  = useRef<((combo: number, isBreak: boolean) => void) | null>(null);
+  // ---- Imperative callback refs (set by child components on mount) ----
+  const judgmentTriggerRef  = useRef<((j: JudgmentType, d: Direction) => void) | null>(null);
+  const comboDisplayFnRef   = useRef<((combo: number, isBreak: boolean) => void) | null>(null);
+  const hypeOverlayFnRef    = useRef<((combo: number, isBreak: boolean) => void) | null>(null);
   const chromaticTriggerRef = useRef<(() => void) | null>(null);
+  const flashTriggerRef     = useRef<(() => void) | null>(null);
+  const hudUpdateRef        = useRef<((score: number, progress: number) => void) | null>(null);
 
-  // Screen effects: white flash on Perfect, vignette is always-on CSS
-  const flashTriggerRef = useRef<(() => void) | null>(null);
+  // Stable callbacks for child registrations (avoid re-creating on each render)
+  const onRegisterFlash      = useCallback((fn: () => void)                          => { flashTriggerRef.current      = fn; }, []);
+  const onRegisterHypeUpdate = useCallback((fn: (c: number, b: boolean) => void)     => { hypeOverlayFnRef.current     = fn; }, []);
+  const onRegisterChromatic  = useCallback((fn: () => void)                          => { chromaticTriggerRef.current  = fn; }, []);
+  const onRegisterCombo      = useCallback((fn: (c: number, b: boolean) => void)     => { comboDisplayFnRef.current    = fn; }, []);
+  const onRegisterJudgment   = useCallback((fn: (j: JudgmentType, d: Direction) => void) => { judgmentTriggerRef.current = fn; }, []);
+  const onRegisterHUD        = useCallback((fn: (score: number, progress: number) => void) => { hudUpdateRef.current = fn; }, []);
+
+  // Whether we are running real gameplay (vs demo)
+  const isRealGame = chartData !== null;
 
   useEffect(() => {
     if (!webGPUSupported || !containerRef.current) return;
 
     const container = containerRef.current;
 
-    // Renderer
+    // Determine which notes / duration / BPM to use
+    const notes: Note[]   = chartData ? chartData.charts[difficulty].notes : DEMO_NOTES;
+    const chartDuration   = chartData ? chartData.duration                 : DEMO_DURATION;
+    const bpm             = chartData ? chartData.bpm                      : DEMO_BPM;
+    const beatInterval    = 60 / bpm;  // seconds per beat
+
+    // Total judgeable slots — for game-end detection in real mode
+    const totalNotes  = isRealGame ? countJudgeableNotes(notes) : 0;
+    const judgedCountRef  = { current: 0 };
+    const gameEndedRef    = { current: false };
+
+    // Reset store for a fresh game session
+    if (isRealGame) {
+      useGameStore.getState().resetGame();
+      useGameStore.getState().startPlaying();
+    }
+
+    // -----------------------------------------------------------------------
+    // Three.js setup
+    // -----------------------------------------------------------------------
+
     const renderer = new THREE.WebGPURenderer({ antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(container.clientWidth, container.clientHeight);
     container.appendChild(renderer.domElement);
 
-    // Scene
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x080810);
 
-    // Orthographic camera sized to viewport (viewHeight = 10 world units)
     const VIEW_HEIGHT = 10;
     const aspect = container.clientWidth / container.clientHeight;
     const camera = new THREE.OrthographicCamera(
@@ -93,7 +144,6 @@ export function GameCanvas() {
     );
     camera.position.z = 10;
 
-    // Resize handler
     function onResize() {
       const w = container.clientWidth;
       const h = container.clientHeight;
@@ -105,70 +155,85 @@ export function GameCanvas() {
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
     }
-
     window.addEventListener('resize', onResize);
 
-    // -------------------------------------------------------------------------
-    // Timing engine (Issue 8) — drives the song clock
-    // -------------------------------------------------------------------------
+    // -----------------------------------------------------------------------
+    // Engine subsystems
+    // -----------------------------------------------------------------------
+
     const timingEngine = new TimingEngine();
-    timingEngine.loadNotes(DEMO_NOTES);
-    timingEngine.play(0); // start free-running clock at t=0
+    timingEngine.loadNotes(notes);
+    timingEngine.play(0);
 
-    // -------------------------------------------------------------------------
-    // Post-processing pipeline (Issue 15) — bloom via WebGPU RenderPipeline
-    // -------------------------------------------------------------------------
     const postProcessing = new PostProcessingManager(renderer, scene, camera);
-
-    // -------------------------------------------------------------------------
-    // Background visuals (Issue 14) — rendered behind all game elements at z=-1
-    // -------------------------------------------------------------------------
-    const background = new BackgroundRenderer(scene);
-
-    // Beat pulse: fire on every 0.5-second boundary of the demo chart (120 BPM feel)
-    const BEAT_INTERVAL = 0.5; // seconds
-    let lastBeatTime = -1;
-
-    // -------------------------------------------------------------------------
-    // Arrow system (Issue 5) + Scroll manager (Issue 7)
-    // -------------------------------------------------------------------------
-    const arrowRenderer = new ArrowRenderer(scene);
-    const scrollManager = new ArrowScrollManager(arrowRenderer);
+    const background     = new BackgroundRenderer(scene);
+    const arrowRenderer  = new ArrowRenderer(scene);
+    const scrollManager  = new ArrowScrollManager(arrowRenderer);
     scrollManager.scrollMultiplier = 2;
-    scrollManager.loadChart(DEMO_NOTES);
-
-    // -------------------------------------------------------------------------
-    // Receptor system (Issue 6)
-    // -------------------------------------------------------------------------
+    scrollManager.loadChart(notes);
     const receptorRenderer = new ReceptorRenderer(scene);
+    const hitEffects       = new HitEffectRenderer(scene);
 
-    // -------------------------------------------------------------------------
-    // Hit effects + particles (Issue 12)
-    // -------------------------------------------------------------------------
-    const hitEffects = new HitEffectRenderer(scene);
+    // -----------------------------------------------------------------------
+    // Combo tracking
+    // -----------------------------------------------------------------------
 
-    // -------------------------------------------------------------------------
-    // Combo tracking (Issue 13)
-    // -------------------------------------------------------------------------
     const comboRef = { current: 0 };
 
-    /** Notify both combo-display and hype-overlay of a combo change, and sync background. */
     function notifyCombo(combo: number, isBreak: boolean) {
       comboDisplayFnRef.current?.(combo, isBreak);
       hypeOverlayFnRef.current?.(combo, isBreak);
       background.setComboLevel(getHypeLevel(combo));
     }
 
-    /** Reset combo for demo-loop restart (no break flash). */
     function resetCombo() {
       comboRef.current = 0;
       notifyCombo(0, false);
       hitEffects.setHypeLevel(0);
     }
 
-    // Auto-miss → break combo (fires from inside the animation loop via onMiss)
-    scrollManager.onMiss = (noteIndex, dir) => {
+    // -----------------------------------------------------------------------
+    // End-game logic
+    // -----------------------------------------------------------------------
+
+    function endGameSession() {
+      inputHandler.disable();
+      if (isRealGame) {
+        const store = useGameStore.getState();
+        store.endGame();
+        const result = store.computeGameResult();
+        store.setGameResult(result);
+      }
+    }
+
+    function checkGameEnd() {
+      if (isRealGame && !gameEndedRef.current && judgedCountRef.current >= totalNotes) {
+        gameEndedRef.current = true;
+        // Small delay so the last hit effects play out before ending
+        setTimeout(endGameSession, 500);
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Auto-miss callback
+    // -----------------------------------------------------------------------
+
+    scrollManager.onMiss = (noteIndex: number, dir: Direction) => {
       timingEngine.markJudged(noteIndex, dir);
+
+      if (isRealGame) {
+        judgedCountRef.current += 1;
+        useGameStore.getState().processJudgment({
+          hit: false,
+          judgment: 'miss',
+          offsetMs: 0,
+          noteIndex,
+          direction: dir,
+        } as JudgmentResult);
+        checkGameEnd();
+      }
+
+      // Break combo
       if (comboRef.current > 0) {
         comboRef.current = 0;
         notifyCombo(0, true);
@@ -176,9 +241,10 @@ export function GameCanvas() {
       }
     };
 
-    // -------------------------------------------------------------------------
-    // Keyboard input (Issue 9) — wired into timing engine + hit effects
-    // -------------------------------------------------------------------------
+    // -----------------------------------------------------------------------
+    // Keyboard input
+    // -----------------------------------------------------------------------
+
     const inputHandler = new InputHandler();
     inputHandler.enable();
 
@@ -188,7 +254,17 @@ export function GameCanvas() {
 
       const { judgment } = result;
 
-      // --- Combo tracking ---
+      // Fade the arrow in the scroll manager
+      scrollManager.judgeArrow(result.noteIndex, judgment);
+
+      // Update persistent scoring (real game only)
+      if (isRealGame) {
+        judgedCountRef.current += 1;
+        useGameStore.getState().processJudgment(result);
+        checkGameEnd();
+      }
+
+      // Combo tracking
       const prevCombo = comboRef.current;
       if (judgment === 'miss') {
         comboRef.current = 0;
@@ -199,14 +275,10 @@ export function GameCanvas() {
         const newCombo = comboRef.current;
         notifyCombo(newCombo, false);
 
-        // Update particle multiplier based on new hype level
-        const newLevel = getHypeLevel(newCombo);
+        const newLevel  = getHypeLevel(newCombo);
         const prevLevel = getHypeLevel(prevCombo);
-        if (newLevel !== prevLevel) {
-          hitEffects.setHypeLevel(newLevel);
-        }
+        if (newLevel !== prevLevel) hitEffects.setHypeLevel(newLevel);
 
-        // Fire chromatic-aberration flash on milestone crossings
         for (const milestone of COMBO_MILESTONES) {
           if (prevCombo < milestone && newCombo >= milestone) {
             chromaticTriggerRef.current?.();
@@ -220,64 +292,70 @@ export function GameCanvas() {
       receptorRenderer.flashReceptor(direction, judgment);
       judgmentTriggerRef.current?.(judgment, direction);
 
-      // Screen flash on Perfect (Issue 15)
       if (judgment === 'perfect') {
         flashTriggerRef.current?.();
       }
     };
 
-    // -------------------------------------------------------------------------
-    // Game loop — song clock driven by TimingEngine
-    // -------------------------------------------------------------------------
-    const loopStart = performance.now();
-    let lastFrameTime = performance.now();
+    // -----------------------------------------------------------------------
+    // Game loop
+    // -----------------------------------------------------------------------
+
+    const loopStart    = performance.now();
+    let lastFrameTime  = performance.now();
+    let lastBeatIndex  = -1;
 
     renderer.setAnimationLoop(() => {
       const now = performance.now();
-      const dt = Math.min((now - lastFrameTime) / 1000, 0.05); // cap at 50ms to avoid spiral
+      const dt  = Math.min((now - lastFrameTime) / 1000, 0.05);
       lastFrameTime = now;
 
-      const songTime = timingEngine.getCurrentTime();
+      const songTime    = timingEngine.getCurrentTime();
+      const realElapsed = (now - loopStart) / 1000;
 
       // Demo loop: restart when we reach the end of the chart
-      if (songTime >= DEMO_DURATION) {
+      if (!isRealGame && songTime >= DEMO_DURATION) {
         resetCombo();
         timingEngine.play(0);
         timingEngine.resetJudgments();
         scrollManager.loadChart(DEMO_NOTES);
       }
 
-      // Raw elapsed time for oscillation-based animations
-      const realElapsed = (now - loopStart) / 1000;
+      // Also end real game if we've run past the chart duration (safety net)
+      if (isRealGame && !gameEndedRef.current && songTime >= chartDuration + 0.5) {
+        gameEndedRef.current = true;
+        setTimeout(endGameSession, 500);
+      }
 
-      // Beat detection for background pulse (fires on each BEAT_INTERVAL boundary)
-      const beatIndex = Math.floor(songTime / BEAT_INTERVAL);
-      if (beatIndex !== lastBeatTime) {
-        lastBeatTime = beatIndex;
+      // Beat pulse for background
+      const beatIndex = Math.floor(songTime / beatInterval);
+      if (beatIndex !== lastBeatIndex) {
+        lastBeatIndex = beatIndex;
         background.pulseOnBeat();
       }
 
-      // Background layer (grid, ambient particles, beat pulse)
       background.update(dt, realElapsed);
-
-      // Update scroll system (sets positions/opacities on arrowRenderer)
       scrollManager.update(songTime);
-
-      // Flush dirty arrow instances to GPU
       arrowRenderer.update();
-
-      // Animate receptors
       receptorRenderer.update(realElapsed);
 
-      // Advance particle simulation — get camera shake offset for this frame
       const { shakeX, shakeY } = hitEffects.update(dt);
-
-      // Apply shake offset to camera (base position is x=0, y=0)
       camera.position.x = shakeX;
       camera.position.y = shakeY;
 
+      // HUD update (real game only)
+      if (isRealGame && hudUpdateRef.current) {
+        const score    = useGameStore.getState().score;
+        const progress = chartDuration > 0 ? Math.min(songTime / chartDuration, 1) : 0;
+        hudUpdateRef.current(score, progress);
+      }
+
       postProcessing.render();
     });
+
+    // -----------------------------------------------------------------------
+    // Cleanup
+    // -----------------------------------------------------------------------
 
     return () => {
       inputHandler.dispose();
@@ -295,7 +373,13 @@ export function GameCanvas() {
         container.removeChild(renderer.domElement);
       }
     };
-  }, [webGPUSupported]);
+    // Re-run whenever chart changes (new song or difficulty selected)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [webGPUSupported, chartData, difficulty]);
+
+  // -----------------------------------------------------------------------
+  // Render
+  // -----------------------------------------------------------------------
 
   if (!webGPUSupported) {
     return (
@@ -316,23 +400,24 @@ export function GameCanvas() {
     <div className="relative h-full w-full overflow-hidden">
       {/* Three.js canvas container */}
       <div ref={containerRef} className="absolute inset-0" />
-      {/* Post-processing CSS effects: vignette + Perfect screen flash (Issue 15) */}
-      <ScreenEffects
-        onRegisterFlash={(fn) => { flashTriggerRef.current = fn; }}
-      />
-      {/* Screen border glow + chromatic aberration (behind combo and judgment text) */}
+
+      {/* Post-processing CSS effects: vignette + Perfect screen flash */}
+      <ScreenEffects onRegisterFlash={onRegisterFlash} />
+
+      {/* Screen border glow + chromatic aberration */}
       <HypeOverlay
-        onRegisterUpdate={(fn) => { hypeOverlayFnRef.current = fn; }}
-        onRegisterChromatic={(fn) => { chromaticTriggerRef.current = fn; }}
+        onRegisterUpdate={onRegisterHypeUpdate}
+        onRegisterChromatic={onRegisterChromatic}
       />
+
       {/* Combo counter with escalating hype visuals */}
-      <ComboDisplay
-        onRegisterUpdate={(fn) => { comboDisplayFnRef.current = fn; }}
-      />
-      {/* HTML judgment text overlay (topmost) */}
-      <JudgmentDisplay
-        onRegisterTrigger={(fn) => { judgmentTriggerRef.current = fn; }}
-      />
+      <ComboDisplay onRegisterUpdate={onRegisterCombo} />
+
+      {/* Floating judgment text (PERFECT! / GREAT! / MISS) */}
+      <JudgmentDisplay onRegisterTrigger={onRegisterJudgment} />
+
+      {/* Score + progress bar — only shown in real gameplay */}
+      {isRealGame && <GameplayHUD onRegisterUpdate={onRegisterHUD} />}
     </div>
   );
 }

@@ -193,3 +193,27 @@ html, body {
   animation: chromatic-aberration 0.55s ease-out forwards;
   will-change: opacity;
 }
+
+/* ---------------------------------------------------------------------------
+   Results screen animations (Issue 22)
+   --------------------------------------------------------------------------- */
+
+/* STAGE CLEAR header — slides down and fades in */
+@keyframes results-header-in {
+  from { opacity: 0; transform: translateY(-22px) scale(0.92); filter: blur(6px); }
+  to   { opacity: 1; transform: translateY(0)     scale(1);    filter: blur(0); }
+}
+
+/* Grade letter — dramatic spring reveal */
+@keyframes results-grade-reveal {
+  0%   { opacity: 0; transform: scale(0.25) rotate(-12deg); filter: blur(18px); }
+  70%  { transform: scale(1.06) rotate(2deg);  filter: blur(0); }
+  85%  { transform: scale(0.97) rotate(-1deg); }
+  100% { opacity: 1; transform: scale(1)    rotate(0deg);   filter: blur(0); }
+}
+
+/* Stats panel + buttons — fade up from slightly below */
+@keyframes results-fade-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

@@ -16,6 +16,8 @@ from typing import Dict
 from models.job import JobStatus, JobState
 from services import ytdlp_service
 from services.ytdlp_service import ExtractionError
+from services import librosa_service
+from services.librosa_service import AnalysisError
 
 # In-memory job store (job_id → JobStatus)
 job_store: Dict[str, JobStatus] = {}
@@ -49,10 +51,14 @@ async def _run_pipeline(job_id: str, url: str) -> None:
             job.message = f"Extracted audio: {result.title}"
 
             # ── Stage 2: Analyze audio via librosa ────────────────────────────
-            # TODO (Issue 26): analysis = await librosa_service.analyze(result.audio_path)
-            # job.bpm = analysis.bpm
-            # job.progress = 60
-            # job.message = f"Analyzed audio — {analysis.bpm:.0f} BPM detected"
+            job.state = JobState.analyzing
+            job.progress = 35
+            job.message = "Analysing audio with librosa…"
+
+            analysis = await librosa_service.analyze(result.audio_path)
+            job.bpm = round(analysis.bpm)
+            job.progress = 60
+            job.message = f"Analysed audio — {analysis.bpm:.0f} BPM detected"
 
             # ── Stage 3: Select best segment ──────────────────────────────────
             # TODO (Issue 27): segment = segment_service.select(analysis)
@@ -66,17 +72,23 @@ async def _run_pipeline(job_id: str, url: str) -> None:
             # job.progress = 100
             # job.message = "Chart ready!"
 
-            # Stages 2-4 not yet implemented — mark as error until Issues 26-28 land
+            # Stages 3-4 not yet implemented — mark as error until Issues 27-28 land
             job.state = JobState.error
-            job.progress = 30
-            job.message = "Audio extracted; analysis pipeline pending (Issues 26-28)"
-            job.error = "analysis_not_implemented"
+            job.progress = 60
+            job.message = "Audio analysed; chart generation pending (Issues 27-28)"
+            job.error = "chart_generation_not_implemented"
 
         except ExtractionError as exc:
             job.state = JobState.error
             job.progress = 0
             job.message = str(exc)
             job.error = "extraction_failed"
+
+        except AnalysisError as exc:
+            job.state = JobState.error
+            job.progress = 30
+            job.message = str(exc)
+            job.error = "analysis_failed"
 
         except Exception as exc:
             job.state = JobState.error

@@ -83,6 +83,18 @@ export class TimingEngine {
    */
   audioOffsetMs = 0;
 
+  /**
+   * Segment start offset in seconds.
+   *
+   * When an audio file has `segment_start > 0`, the audio element's
+   * `currentTime` begins at that offset rather than 0.  This value is
+   * subtracted during periodic resyncs so that `getCurrentTime()` always
+   * returns a game-relative position (0 = start of the playable segment).
+   *
+   * Set this before calling `setAudioElement()` / `play()`.  Default: 0.
+   */
+  segmentStart = 0;
+
   // ---------------------------------------------------------------------------
   // Setup
   // ---------------------------------------------------------------------------
@@ -127,10 +139,17 @@ export class TimingEngine {
 
   /**
    * Start (or restart) the clock at `startTime` seconds.
-   * Defaults to the audio element's `currentTime`, or 0 if none is set.
+   *
+   * If `startTime` is omitted and an audio element is attached, anchors to
+   * the normalised audio position (`audio.currentTime - segmentStart`).
+   * Falls back to 0 if no audio element is set.
    */
   play(startTime?: number): void {
-    const anchor = startTime ?? (this._audioElement?.currentTime ?? 0);
+    const anchor =
+      startTime ??
+      (this._audioElement
+        ? this._audioElement.currentTime - this.segmentStart
+        : 0);
     this._baseAudioTime = anchor;
     this._basePerf = performance.now();
     this._lastResyncPerf = this._basePerf;
@@ -171,9 +190,10 @@ export class TimingEngine {
 
     const now = performance.now();
 
-    // Periodic resync to audio element — corrects accumulated clock drift
+    // Periodic resync to audio element — corrects accumulated clock drift.
+    // Normalise by segmentStart so getCurrentTime() is always game-relative.
     if (this._audioElement && now - this._lastResyncPerf >= RESYNC_INTERVAL_MS) {
-      this._baseAudioTime = this._audioElement.currentTime;
+      this._baseAudioTime = this._audioElement.currentTime - this.segmentStart;
       this._basePerf = now;
       this._lastResyncPerf = now;
     }

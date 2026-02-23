@@ -7,6 +7,7 @@ import { HitEffectRenderer } from '@/rendering/HitEffectRenderer';
 import { BackgroundRenderer } from '@/rendering/BackgroundRenderer';
 import { PostProcessingManager } from '@/rendering/PostProcessingManager';
 import { TimingEngine } from '@/engine/TimingEngine';
+import { AudioPlayer } from '@/engine/AudioPlayer';
 import { InputHandler } from '@/engine/InputHandler';
 import { JudgmentDisplay } from './JudgmentDisplay';
 import { ComboDisplay, getHypeLevel } from './ComboDisplay';
@@ -163,6 +164,34 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
 
     const timingEngine = new TimingEngine();
     timingEngine.loadNotes(notes);
+
+    // -----------------------------------------------------------------------
+    // Local audio setup (Issue 17)
+    // -----------------------------------------------------------------------
+
+    // audioPlayer is only created for real games with a local audio URL.
+    // For demo mode and YouTube songs it stays null.
+    let audioPlayer: AudioPlayer | null = null;
+    let audioStarted = false;
+
+    if (isRealGame && chartData.source === 'local' && chartData.audio_url) {
+      audioPlayer = new AudioPlayer();
+      timingEngine.segmentStart = chartData.segment_start ?? 0;
+
+      audioPlayer
+        .load(chartData.audio_url, chartData.segment_start ?? 0)
+        .then(() => {
+          // Wire the audio element so the timing engine can resync every ~500ms
+          if (audioPlayer) {
+            timingEngine.setAudioElement(audioPlayer.element);
+          }
+        })
+        .catch((err: unknown) => {
+          console.warn('[AudioPlayer] Failed to load audio:', err);
+        });
+    }
+
+    // Start the timing engine clock (free-runs until audio is available)
     timingEngine.play(0);
 
     const postProcessing = new PostProcessingManager(renderer, scene, camera);
@@ -249,6 +278,17 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     inputHandler.enable();
 
     inputHandler.onInput = (direction: Direction, timestamp: number) => {
+      // Start local audio on first user gesture (browser AudioContext policy).
+      // Seek audio to match the current game clock so arrows stay in sync.
+      if (audioPlayer && !audioStarted) {
+        audioStarted = true;
+        const currentGameTime = timingEngine.getCurrentTime();
+        audioPlayer.seek(currentGameTime);
+        audioPlayer.play().catch((err: unknown) => {
+          console.warn('[AudioPlayer] play() failed:', err);
+        });
+      }
+
       const result = timingEngine.judge(direction, timestamp);
       if (!result) return; // no note in window — empty press
 
@@ -359,6 +399,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
 
     return () => {
       inputHandler.dispose();
+      audioPlayer?.dispose();
       timingEngine.dispose();
       scrollManager.dispose();
       arrowRenderer.dispose();

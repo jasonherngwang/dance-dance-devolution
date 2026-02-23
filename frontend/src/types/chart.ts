@@ -22,6 +22,8 @@ export interface ChartData {
   segment_start: number;  // Where in the audio to begin (seconds)
   offset: number;         // Fine-tune sync offset (seconds)
   source: 'local' | 'youtube';  // Audio source type
+  /** Path to local audio file (e.g. "/audio/sandstorm.mp3"). Required when source === 'local'. */
+  audio_url?: string;
   charts: {
     easy: Chart;
     hard: Chart;

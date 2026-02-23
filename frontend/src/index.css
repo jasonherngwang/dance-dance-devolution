@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+@theme {
+  /* Neon color palette */
+  --color-neon-magenta: #ff00ff;
+  --color-neon-cyan: #00ffff;
+  --color-neon-green: #00ff88;
+  --color-neon-orange: #ff8800;
+  --color-neon-yellow: #ffff00;
+  --color-neon-blue: #0088ff;
+  --color-neon-pink: #ff0088;
+  --color-neon-purple: #8800ff;
+
+  /* UI colors */
+  --color-game-bg: #080810;
+  --color-game-surface: #0d0d1a;
+  --color-game-border: #1a1a33;
+  --color-game-text: rgba(255, 255, 255, 0.9);
+  --color-game-text-dim: rgba(255, 255, 255, 0.5);
+}
+
+/* Base reset and dark theme */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--color-game-bg);
+  color: var(--color-game-text);
+  font-family: system-ui, -apple-system, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Prevent touch callouts and selection during gameplay */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+}

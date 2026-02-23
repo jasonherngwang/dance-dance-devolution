@@ -1,14 +1,14 @@
-import { GameCanvas } from '@/components/GameCanvas';
-import { useGameStore } from '@/stores';
+import { Outlet, useLocation } from 'react-router-dom';
 
 function App() {
-  // Subscribe only to song selection — score/combo changes don't trigger re-renders
-  const activeSong       = useGameStore(state => state.activeSong);
-  const activeDifficulty = useGameStore(state => state.activeDifficulty);
+  const { pathname } = useLocation();
 
   return (
     <div className="h-full w-full bg-game-bg">
-      <GameCanvas chartData={activeSong} difficulty={activeDifficulty} />
+      {/* key forces unmount/remount on route change, triggering the fade-in animation */}
+      <div key={pathname} className="screen-fade-in h-full w-full">
+        <Outlet />
+      </div>
     </div>
   );
 }

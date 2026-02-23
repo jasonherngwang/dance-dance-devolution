@@ -2,17 +2,20 @@
 Async job queue with a Semaphore(2) concurrency limit.
 Jobs are kept in memory; chart results are persisted in the SQLite cache.
 
-Full pipeline (implemented in Issues 25-28):
-  extract audio (yt-dlp) → analyze audio (librosa) → select segment → generate chart → cache
-
-For Issue 24 this file only sets up the scaffolding. The actual pipeline
-steps will be added in Issues 25-28.
+Pipeline:
+  extract audio (yt-dlp) [Issue 25]
+  → analyze audio (librosa) [Issue 26]
+  → select segment [Issue 27]
+  → generate chart [Issue 28]
+  → cache & mark complete [Issue 29]
 """
 
 import asyncio
 from typing import Dict
 
 from models.job import JobStatus, JobState
+from services import ytdlp_service
+from services.ytdlp_service import ExtractionError
 
 # In-memory job store (job_id → JobStatus)
 job_store: Dict[str, JobStatus] = {}
@@ -22,34 +25,69 @@ _semaphore = asyncio.Semaphore(2)
 
 
 async def _run_pipeline(job_id: str, url: str) -> None:
-    """Full processing pipeline placeholder — extended in Issues 25-28."""
+    """Full processing pipeline — extraction implemented; remaining steps pending."""
     async with _semaphore:
         job = job_store.get(job_id)
         if job is None:
             return
 
+        temp_dir = None
         try:
-            # Stub: mark as extracting then immediately error until Issue 25 fills this in
+            # ── Stage 1: Extract audio via yt-dlp ─────────────────────────────
             job.state = JobState.extracting
-            job.progress = 10
-            job.message = "Starting extraction…"
+            job.progress = 5
+            job.message = "Downloading audio from YouTube…"
 
-            # TODO (Issue 25): yt_dlp_service.extract(url) → audio_path, metadata
-            # TODO (Issue 26): librosa_service.analyze(audio_path) → analysis
-            # TODO (Issue 27): segment_service.select(analysis) → segment
-            # TODO (Issue 28): chart_service.generate(analysis, segment) → chart_data
-            # TODO: cache.save(video_id, chart_data)
-            # TODO: job.state = JobState.complete; job.progress = 100
+            result = await ytdlp_service.extract_audio(url)
+            temp_dir = result.temp_dir
 
+            # Persist metadata so the frontend can show title/artist early
+            job.video_id = result.video_id
+            job.title = result.title
+            job.artist = result.artist
+            job.progress = 30
+            job.message = f"Extracted audio: {result.title}"
+
+            # ── Stage 2: Analyze audio via librosa ────────────────────────────
+            # TODO (Issue 26): analysis = await librosa_service.analyze(result.audio_path)
+            # job.bpm = analysis.bpm
+            # job.progress = 60
+            # job.message = f"Analyzed audio — {analysis.bpm:.0f} BPM detected"
+
+            # ── Stage 3: Select best segment ──────────────────────────────────
+            # TODO (Issue 27): segment = segment_service.select(analysis)
+            # job.progress = 75
+
+            # ── Stage 4: Generate chart ───────────────────────────────────────
+            # TODO (Issue 28): chart_data = chart_service.generate(analysis, segment)
+            # from services.cache import chart_cache
+            # chart_cache.save(result.video_id, chart_data)
+            # job.state = JobState.complete
+            # job.progress = 100
+            # job.message = "Chart ready!"
+
+            # Stages 2-4 not yet implemented — mark as error until Issues 26-28 land
+            job.state = JobState.error
+            job.progress = 30
+            job.message = "Audio extracted; analysis pipeline pending (Issues 26-28)"
+            job.error = "analysis_not_implemented"
+
+        except ExtractionError as exc:
             job.state = JobState.error
             job.progress = 0
-            job.message = "Pipeline not yet implemented (Issues 25-28 pending)"
-            job.error = "not_implemented"
+            job.message = str(exc)
+            job.error = "extraction_failed"
+
         except Exception as exc:
             job.state = JobState.error
             job.progress = 0
             job.message = "An unexpected error occurred"
             job.error = str(exc)
+
+        finally:
+            # Always clean up the temp audio directory when the pipeline finishes
+            if temp_dir is not None:
+                ytdlp_service.cleanup_temp_dir(temp_dir)
 
 
 async def enqueue_job(job_id: str, url: str) -> None:

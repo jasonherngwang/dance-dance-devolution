@@ -87,6 +87,7 @@ async def _run_pipeline(job_id: str, url: str) -> None:
                 title=result.title,
                 artist=result.artist,
                 audio_url="",  # custom songs stream via YouTube IFrame
+                video_id=result.video_id,
             )
 
             # Persist to SQLite cache

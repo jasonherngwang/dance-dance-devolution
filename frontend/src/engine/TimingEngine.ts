@@ -69,6 +69,15 @@ export class TimingEngine {
   /** Audio element for periodic resync (local audio only) */
   private _audioElement: HTMLAudioElement | null = null;
 
+  /**
+   * Generic time source for non-audio sync (e.g. YouTube IFrame player).
+   * Function returns game-relative seconds (segmentStart already subtracted),
+   * or null if the source is not yet ready.
+   *
+   * Takes priority over _audioElement when set.
+   */
+  private _timeSource: (() => number | null) | null = null;
+
   /** Flattened, time-sorted per-direction note list */
   private _notes: TrackedNote[] = [];
 
@@ -133,6 +142,21 @@ export class TimingEngine {
     this._audioElement = audio;
   }
 
+  /**
+   * Set a generic time source for clock synchronisation.
+   *
+   * Used for YouTube IFrame playback where no HTMLAudioElement is available.
+   * The function must return game-relative seconds (segmentStart already
+   * subtracted), or null if the source is not yet ready — the engine will
+   * skip that resync cycle and try again at the next interval.
+   *
+   * Takes priority over setAudioElement() when both are set.
+   * Pass null to clear and fall back to audio element sync.
+   */
+  setTimeSource(fn: (() => number | null) | null): void {
+    this._timeSource = fn;
+  }
+
   // ---------------------------------------------------------------------------
   // Clock control
   // ---------------------------------------------------------------------------
@@ -190,12 +214,22 @@ export class TimingEngine {
 
     const now = performance.now();
 
-    // Periodic resync to audio element — corrects accumulated clock drift.
-    // Normalise by segmentStart so getCurrentTime() is always game-relative.
-    if (this._audioElement && now - this._lastResyncPerf >= RESYNC_INTERVAL_MS) {
-      this._baseAudioTime = this._audioElement.currentTime - this.segmentStart;
-      this._basePerf = now;
-      this._lastResyncPerf = now;
+    // Periodic resync — corrects accumulated clock drift.
+    // _timeSource (YouTube) takes priority over _audioElement (local audio).
+    if (now - this._lastResyncPerf >= RESYNC_INTERVAL_MS) {
+      if (this._timeSource) {
+        const sourceTime = this._timeSource();
+        if (sourceTime !== null) {
+          this._baseAudioTime = sourceTime;
+          this._basePerf = now;
+          this._lastResyncPerf = now;
+        }
+      } else if (this._audioElement) {
+        // Normalise by segmentStart so getCurrentTime() is always game-relative.
+        this._baseAudioTime = this._audioElement.currentTime - this.segmentStart;
+        this._basePerf = now;
+        this._lastResyncPerf = now;
+      }
     }
 
     return this._baseAudioTime + (now - this._basePerf) / 1000;
@@ -303,6 +337,7 @@ export class TimingEngine {
 
   dispose(): void {
     this._audioElement = null;
+    this._timeSource = null;
     this._notes = [];
     this._isPaused = true;
   }

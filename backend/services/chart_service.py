@@ -243,6 +243,7 @@ def _generate_sync(
     title: str,
     artist: str,
     audio_url: str,
+    video_id: str = "",
 ) -> ChartData:
     """
     Synchronous chart generation — intended to run in a thread pool.
@@ -314,6 +315,8 @@ def _generate_sync(
         duration=round(seg_duration, 2),
         segment_start=round(seg_start, 2),
         audio_url=audio_url,
+        source="youtube" if video_id else "local",
+        video_id=video_id,
         charts={"easy": easy_chart, "hard": hard_chart},
     )
 
@@ -326,6 +329,7 @@ async def generate(
     title: str = "",
     artist: str = "",
     audio_url: str = "",
+    video_id: str = "",
 ) -> ChartData:
     """
     Async entry point: generates Easy + Hard charts from audio analysis.
@@ -339,6 +343,7 @@ async def generate(
         title:     Song title (propagated from yt-dlp metadata).
         artist:    Artist name (propagated from yt-dlp metadata).
         audio_url: Audio URL for the frontend (empty string for custom songs).
+        video_id:  YouTube video ID; sets source='youtube' in ChartData.
 
     Returns:
         ChartData with both "easy" and "hard" Chart entries.
@@ -346,7 +351,7 @@ async def generate(
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         None,
-        partial(_generate_sync, analysis, segment, title, artist, audio_url),
+        partial(_generate_sync, analysis, segment, title, artist, audio_url, video_id),
     )
 
 

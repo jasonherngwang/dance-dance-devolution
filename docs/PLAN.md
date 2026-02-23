@@ -672,7 +672,7 @@ Acceptance criteria:
 
 **Issue 31**
 
-Status: READY
+Status: COMPLETE
 
 Task: YouTube IFrame integration for custom URLs
 
@@ -685,11 +685,11 @@ Integrate the YouTube IFrame Player API for custom URL gameplay (PRD Section 10.
 - Periodic resync every ~2 seconds via `player.getCurrentTime()`
 
 Acceptance criteria:
-- [ ] YouTube video plays behind the game canvas
-- [ ] Video is dimmed to 40-60% opacity
-- [ ] SyncedClock tracks position with <50ms drift
-- [ ] Periodic resync corrects drift smoothly
-- [ ] seekTo works for segment start offsets
+- [x] YouTube video plays behind the game canvas
+- [x] Video is dimmed to 40-60% opacity
+- [x] SyncedClock tracks position with <50ms drift
+- [x] Periodic resync corrects drift smoothly
+- [x] seekTo works for segment start offsets
 
 ---
 
@@ -870,7 +870,7 @@ Acceptance criteria:
 
 **Issue 40**
 
-Status: BLOCKED by Issue 39
+Status: ON HOLD - DO NOT IMPLEMENT YET
 
 Task: VPS deployment with Caddy
 

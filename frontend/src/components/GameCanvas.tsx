@@ -8,6 +8,7 @@ import { BackgroundRenderer } from '@/rendering/BackgroundRenderer';
 import { PostProcessingManager } from '@/rendering/PostProcessingManager';
 import { TimingEngine } from '@/engine/TimingEngine';
 import { AudioPlayer } from '@/engine/AudioPlayer';
+import { YouTubePlayer } from '@/engine/YouTubePlayer';
 import { InputHandler } from '@/engine/InputHandler';
 import { JudgmentDisplay } from './JudgmentDisplay';
 import { ComboDisplay, getHypeLevel } from './ComboDisplay';
@@ -80,6 +81,8 @@ interface GameCanvasProps {
 
 export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // Container for the YouTube iframe (YouTube source only)
+  const ytContainerRef = useRef<HTMLDivElement>(null);
   const webGPUSupported = isWebGPUAvailable();
 
   // ---- Imperative callback refs (set by child components on mount) ----
@@ -102,6 +105,8 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
 
   // Whether we are running real gameplay (vs demo)
   const isRealGame = chartData !== null;
+  // Whether the active chart uses YouTube IFrame for audio
+  const isYouTubeGame = chartData?.source === 'youtube';
 
   useEffect(() => {
     if (!webGPUSupported || !containerRef.current) return;
@@ -129,13 +134,17 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     // Three.js setup
     // -----------------------------------------------------------------------
 
-    const renderer = new THREE.WebGPURenderer({ antialias: true });
+    // For YouTube songs, use alpha=true so the canvas is transparent and the
+    // video below shows through.  For local/demo, keep alpha off (solid dark bg).
+    const renderer = new THREE.WebGPURenderer({ antialias: true, alpha: isYouTubeGame });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(container.clientWidth, container.clientHeight);
     container.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x080810);
+    // Transparent canvas for YouTube (background comes from video + CSS).
+    // Solid dark background for local audio and demo mode.
+    scene.background = isYouTubeGame ? null : new THREE.Color(0x080810);
 
     const VIEW_HEIGHT = 10;
     const aspect = container.clientWidth / container.clientHeight;
@@ -189,6 +198,33 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
         .load(chartData.audio_url, chartData.segment_start ?? 0)
         .catch((err: unknown) => {
           console.warn('[AudioPlayer] Failed to load audio:', err);
+        });
+    }
+
+    // YouTube player for custom URL songs (Issue 31)
+    let ytPlayer: YouTubePlayer | null = null;
+    let ytStarted = false;
+
+    if (isRealGame && chartData.source === 'youtube' && chartData.video_id && ytContainerRef.current) {
+      ytPlayer = new YouTubePlayer();
+      const segStart = chartData.segment_start ?? 0;
+
+      // Create an inner element for YouTube to replace with an iframe.
+      // Using a child (not the container itself) avoids React DOM conflicts
+      // since YouTube replaces the target element with an <iframe>.
+      const ytInner = document.createElement('div');
+      ytInner.style.width = '100%';
+      ytInner.style.height = '100%';
+      ytContainerRef.current.appendChild(ytInner);
+
+      ytPlayer
+        .load(ytInner, chartData.video_id, segStart)
+        .then(() => {
+          // Player is ready — setTimeSource is wired at "GO" so the countdown
+          // period doesn't corrupt the clock anchor.
+        })
+        .catch((err: unknown) => {
+          console.warn('[YouTubePlayer] Failed to load:', err);
         });
     }
 
@@ -294,6 +330,15 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
         });
       }
 
+      // Fallback for YouTube: start on first keypress if not yet started
+      if (ytPlayer && !ytStarted && ytPlayer.isReady) {
+        ytStarted = true;
+        const currentGameTime = timingEngine.getCurrentTime();
+        ytPlayer.seekTo(currentGameTime);
+        ytPlayer.play();
+        timingEngine.setTimeSource(() => ytPlayer!.getCurrentTime());
+      }
+
       const result = timingEngine.judge(direction, timestamp);
       if (!result) return; // no note in window — empty press
 
@@ -381,7 +426,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
             countdownUpdateRef.current?.(newPhase);
           }
 
-          // At GO (t >= 0): enable input and start audio
+          // At GO (t >= 0): enable input and start audio / YouTube player
           if (songTime >= 0) {
             inputEnabled = true;
             inputHandler.enable();
@@ -396,6 +441,16 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
                 console.warn('[AudioPlayer] play() at GO! failed (will retry on first key):', err);
                 audioStarted = false; // allow keypress fallback
               });
+            }
+
+            if (ytPlayer && !ytStarted && ytPlayer.isReady) {
+              ytStarted = true;
+              // Seek to exact game start in case the countdown buffered differently
+              ytPlayer.seekTo(0);
+              ytPlayer.play();
+              // Wire periodic resync: YouTubePlayer.getCurrentTime() returns
+              // game-relative seconds (segmentStart already subtracted).
+              timingEngine.setTimeSource(() => ytPlayer!.getCurrentTime());
             }
           }
         } else if (songTime >= 0.5 && countdownPhase !== -1) {
@@ -452,6 +507,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     return () => {
       inputHandler.dispose();
       audioPlayer?.dispose();
+      ytPlayer?.dispose();
       timingEngine.dispose();
       scrollManager.dispose();
       arrowRenderer.dispose();
@@ -490,9 +546,26 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
   }
 
   return (
-    <div className="relative h-full w-full overflow-hidden">
+    <div className="relative h-full w-full overflow-hidden bg-game-bg">
+      {/* YouTube video layer — behind the Three.js canvas (YouTube source only) */}
+      {isYouTubeGame && (
+        <div
+          ref={ytContainerRef}
+          className="absolute inset-0"
+          style={{
+            opacity: 0.5,
+            zIndex: 0,
+            pointerEvents: 'none',
+          }}
+        />
+      )}
+
       {/* Three.js canvas container */}
-      <div ref={containerRef} className="absolute inset-0" />
+      <div
+        ref={containerRef}
+        className="absolute inset-0"
+        style={{ zIndex: 1 }}
+      />
 
       {/* Post-processing CSS effects: vignette + Perfect screen flash */}
       <ScreenEffects onRegisterFlash={onRegisterFlash} />

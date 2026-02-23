@@ -157,12 +157,18 @@ export default function LoadingScreen() {
           // onComplete
           (status) => {
             if (cancelled || navigatedRef.current) return;
-            if (status.status === 'error') {
+            // Backend returns 'state'; fallback to 'status' for legacy compatibility
+            const finalState = status.state ?? status.status;
+            if (finalState === 'error') {
               setError(status.error ?? 'Analysis failed. Please try a different URL.');
               return;
             }
-            // Fetch the finished chart and navigate
-            fetchChartAndNavigate(job_id);
+            if (!status.video_id) {
+              setError('Video ID missing from job status. Please try again.');
+              return;
+            }
+            // Fetch the chart using video_id (not job_id)
+            fetchChartAndNavigate(status.video_id);
           },
         );
       })
@@ -178,12 +184,12 @@ export default function LoadingScreen() {
   }, [ytUrl]);
 
   const fetchChartAndNavigate = useCallback(
-    async (jid: string) => {
+    async (videoId: string) => {
       if (navigatedRef.current) return;
       navigatedRef.current = true;
 
       try {
-        const res = await fetch(`/api/chart/${jid}`);
+        const res = await fetch(`/api/chart/${videoId}`);
         if (!res.ok) throw new Error(`Chart not found (${res.status})`);
         const chart: ChartData = await res.json();
         resetGame();
@@ -204,10 +210,12 @@ export default function LoadingScreen() {
     navigate('/play');
   }, [featuredSong, featuredChart, resetGame, setActiveSong, navigate]);
 
-  const status     = jobStatus?.status ?? (error ? 'error' : 'queued');
+  // Backend returns 'state'; fallback chain for robustness
+  const status = jobStatus?.state ?? jobStatus?.status ?? (error ? 'error' : 'queued');
   const progress   = jobStatus?.progress ?? 0;
-  const detectedTitle = jobStatus?.details?.title;
-  const detectedBpm   = jobStatus?.details?.bpm;
+  // Backend sends title/bpm at top level; legacy 'details' shape as fallback
+  const detectedTitle = jobStatus?.title ?? jobStatus?.details?.title;
+  const detectedBpm   = jobStatus?.bpm   ?? jobStatus?.details?.bpm;
 
   const statusLabel: Record<string, string> = {
     queued:     'Waiting in queue...',

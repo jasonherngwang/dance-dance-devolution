@@ -68,7 +68,11 @@ export const useJobStore = create<JobStore>((set, get) => ({
         get().upsertJob(status);
         onUpdate?.(status);
 
-        if (status.status === 'complete' || status.status === 'error') {
+        // Backend returns 'state'; check both for robustness
+        const isDone =
+          status.state === 'complete' || status.state === 'error' ||
+          status.status === 'complete' || status.status === 'error';
+        if (isDone) {
           stopPolling(jobId);
           onComplete?.(status);
         }

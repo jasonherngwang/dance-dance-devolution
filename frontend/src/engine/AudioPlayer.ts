@@ -20,6 +20,8 @@ export class AudioPlayer {
   private _audioContext: AudioContext | null = null;
   private _segmentStart = 0;
   private _isLoaded = false;
+  private _disposed = false;
+  private _fadeAnimId: number | null = null;
 
   constructor() {
     this._audio = new Audio();
@@ -52,7 +54,10 @@ export class AudioPlayer {
 
     return new Promise<void>((resolve, reject) => {
       const onCanPlay = () => {
-        // Seek after the browser has loaded enough metadata
+        // Seek after the browser has loaded enough metadata.
+        // Using 'canplay' (not 'canplaythrough') because Chrome defers
+        // 'canplaythrough' indefinitely for files served without Accept-Ranges
+        // support, causing the load Promise to never resolve.
         this._audio.currentTime = segmentStart;
         this._isLoaded = true;
         cleanup();
@@ -61,15 +66,18 @@ export class AudioPlayer {
 
       const onError = () => {
         cleanup();
+        // Silently resolve if the error was triggered by dispose() clearing audio.src —
+        // this is expected in React Strict Mode where effects are double-invoked.
+        if (this._disposed) { resolve(); return; }
         reject(new Error(`AudioPlayer: failed to load "${url}"`));
       };
 
       const cleanup = () => {
-        this._audio.removeEventListener('canplaythrough', onCanPlay);
+        this._audio.removeEventListener('canplay', onCanPlay);
         this._audio.removeEventListener('error', onError);
       };
 
-      this._audio.addEventListener('canplaythrough', onCanPlay);
+      this._audio.addEventListener('canplay', onCanPlay);
       this._audio.addEventListener('error', onError);
       this._audio.load();
     });
@@ -80,25 +88,36 @@ export class AudioPlayer {
   // ---------------------------------------------------------------------------
 
   /**
+   * Pre-create the AudioContext and wire up the media element source graph.
+   *
+   * Call this early (e.g. at the start of the countdown) so the synchronous
+   * AudioContext construction and createMediaElementSource() work happens well
+   * before gameplay begins, preventing a frame stall at the GO! transition.
+   *
+   * Safe to call multiple times — only creates the context once.
+   */
+  prewarm(): void {
+    if (this._audioContext) return;
+    this._audioContext = new AudioContext();
+    const source = this._audioContext.createMediaElementSource(this._audio);
+    source.connect(this._audioContext.destination);
+  }
+
+  /**
    * Start playback.
    *
-   * Creates an AudioContext the first time this is called (browser autoplay
-   * policy requires the AudioContext to be created inside a user-gesture
-   * handler such as `keydown` or `touchstart`).  Resumes a suspended context
-   * if needed, then calls `audio.play()`.
+   * Resumes the AudioContext if suspended (created by prewarm()), then calls
+   * audio.play().  If prewarm() was not called first, falls back to creating
+   * the context here.
    *
    * Returns the AudioContext's play Promise so callers can catch NotAllowedError
    * if the gesture requirement is not met.
    */
   async play(): Promise<void> {
-    if (!this._audioContext) {
-      this._audioContext = new AudioContext();
-      const source = this._audioContext.createMediaElementSource(this._audio);
-      source.connect(this._audioContext.destination);
-    }
+    this.prewarm();
 
-    if (this._audioContext.state === 'suspended') {
-      await this._audioContext.resume();
+    if (this._audioContext!.state === 'suspended') {
+      await this._audioContext!.resume();
     }
 
     await this._audio.play();
@@ -107,6 +126,30 @@ export class AudioPlayer {
   /** Pause playback. */
   pause(): void {
     this._audio.pause();
+  }
+
+  /**
+   * Fade volume from 0 → 1 over `durationMs` milliseconds.
+   * Call immediately after `play()` for a smooth start.
+   */
+  fadeIn(durationMs: number): void {
+    if (this._fadeAnimId !== null) {
+      cancelAnimationFrame(this._fadeAnimId);
+      this._fadeAnimId = null;
+    }
+    this._audio.volume = 0;
+    const startTime = performance.now();
+    const step = () => {
+      if (this._disposed) return;
+      const t = Math.min((performance.now() - startTime) / durationMs, 1);
+      this._audio.volume = t;
+      if (t < 1) {
+        this._fadeAnimId = requestAnimationFrame(step);
+      } else {
+        this._fadeAnimId = null;
+      }
+    };
+    this._fadeAnimId = requestAnimationFrame(step);
   }
 
   /**
@@ -161,6 +204,11 @@ export class AudioPlayer {
   // ---------------------------------------------------------------------------
 
   dispose(): void {
+    this._disposed = true;
+    if (this._fadeAnimId !== null) {
+      cancelAnimationFrame(this._fadeAnimId);
+      this._fadeAnimId = null;
+    }
     this._audio.pause();
     this._audio.src = '';
     if (this._audioContext) {

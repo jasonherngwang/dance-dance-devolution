@@ -15,29 +15,29 @@
  * fixed to the viewport, pointer-events-none, behind all other content.
  */
 
-import { useEffect, useRef } from 'react';
-import * as THREE from 'three/webgpu';
-import { pass } from 'three/tsl';
-import { bloom } from 'three/addons/tsl/display/BloomNode.js';
+import { useEffect, useRef } from "react";
+import * as THREE from "three/webgpu";
+import { pass } from "three/tsl";
+import { bloom } from "three/addons/tsl/display/BloomNode.js";
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
-const PARTICLE_COUNT   = 180;
+const PARTICLE_COUNT = 180;
 const PULSE_RING_COUNT = 5;
-const PULSE_INTERVAL   = 3.5; // seconds between auto-pulses
+const PULSE_INTERVAL = 3.5; // seconds between auto-pulses
 
 // Camera half-height (world units) — determines scale / spread of particles
 const HALF_H = 6;
 
 /** Neon colour palette: [r, g, b] in linear 0-1 space */
 const NEON_COLORS: [number, number, number][] = [
-  [0.0, 1.0, 1.0],  // cyan
-  [1.0, 0.0, 1.0],  // magenta
-  [0.0, 1.0, 0.4],  // neon green
-  [1.0, 0.5, 0.0],  // orange
-  [0.7, 0.7, 1.0],  // cool white / blue-white
+  [0.0, 1.0, 1.0], // cyan
+  [1.0, 0.0, 1.0], // magenta
+  [0.0, 1.0, 0.4], // neon green
+  [1.0, 0.5, 0.0], // orange
+  [0.7, 0.7, 1.0], // cool white / blue-white
 ];
 
 // ---------------------------------------------------------------------------
@@ -45,11 +45,15 @@ const NEON_COLORS: [number, number, number][] = [
 // ---------------------------------------------------------------------------
 
 interface Particle {
-  x: number; y: number;
-  vx: number; vy: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
   maxSpeed: number;
-  phase: number;  // phase offset for opacity sin-wave
-  r: number; g: number; b: number;
+  phase: number; // phase offset for opacity sin-wave
+  r: number;
+  g: number;
+  b: number;
 }
 
 interface PulseRing {
@@ -61,7 +65,7 @@ interface PulseRing {
 
 // Reusable scratch objects — avoids per-frame allocation
 const _mat4 = new THREE.Matrix4();
-const _col  = new THREE.Color();
+const _col = new THREE.Color();
 
 // ---------------------------------------------------------------------------
 // Component
@@ -75,7 +79,12 @@ export function HomeBackground() {
     if (!container) return;
 
     // Bail out silently on non-WebGPU browsers; CSS background remains visible
-    if (typeof navigator === 'undefined' || !('gpu' in navigator) || !navigator.gpu) return;
+    if (
+      typeof navigator === "undefined" ||
+      !("gpu" in navigator) ||
+      !navigator.gpu
+    )
+      return;
 
     let renderer: THREE.WebGPURenderer | null = null;
     let disposed = false;
@@ -95,7 +104,8 @@ export function HomeBackground() {
     // ------------------------------------------------------------------
 
     function makeParticle(halfW: number, halfH_: number): Particle {
-      const [r, g, b] = NEON_COLORS[Math.floor(Math.random() * NEON_COLORS.length)];
+      const [r, g, b] =
+        NEON_COLORS[Math.floor(Math.random() * NEON_COLORS.length)];
       const speed = 0.06 + Math.random() * 0.12;
       const angle = Math.random() * Math.PI * 2;
       return {
@@ -105,7 +115,9 @@ export function HomeBackground() {
         vy: Math.sin(angle) * speed,
         maxSpeed: speed * 1.4,
         phase: Math.random() * Math.PI * 2,
-        r, g, b,
+        r,
+        g,
+        b,
       };
     }
 
@@ -135,30 +147,37 @@ export function HomeBackground() {
         return;
       }
 
-      const W      = container!.clientWidth;
-      const H      = container!.clientHeight;
+      const W = container!.clientWidth;
+      const H = container!.clientHeight;
       const aspect = W / H;
-      const halfW  = HALF_H * aspect;
+      const halfW = HALF_H * aspect;
 
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
       renderer.setSize(W, H);
       renderer.setClearColor(0x000000, 0); // fully transparent clear
 
       const canvas = renderer.domElement;
-      canvas.style.position = 'absolute';
-      canvas.style.inset    = '0';
-      canvas.style.width    = '100%';
-      canvas.style.height   = '100%';
+      canvas.style.position = "absolute";
+      canvas.style.inset = "0";
+      canvas.style.width = "100%";
+      canvas.style.height = "100%";
       container!.appendChild(canvas);
 
-      const scene  = new THREE.Scene();
-      const camera = new THREE.OrthographicCamera(-halfW, halfW, HALF_H, -HALF_H, 0.1, 100);
+      const scene = new THREE.Scene();
+      const camera = new THREE.OrthographicCamera(
+        -halfW,
+        halfW,
+        HALF_H,
+        -HALF_H,
+        0.1,
+        100,
+      );
       camera.position.z = 10;
 
       // ── Ambient particles ─────────────────────────────────────────────
       const planeGeo = new THREE.PlaneGeometry(0.12, 0.12);
       const planeMat = new THREE.MeshBasicMaterial({
-        blending:   THREE.AdditiveBlending,
+        blending: THREE.AdditiveBlending,
         transparent: true,
         depthWrite: false,
       });
@@ -178,11 +197,11 @@ export function HomeBackground() {
 
       for (let i = 0; i < PULSE_RING_COUNT; i++) {
         const mat = new THREE.MeshBasicMaterial({
-          color:       0x00ddff,
-          blending:    THREE.AdditiveBlending,
+          color: 0x00ddff,
+          blending: THREE.AdditiveBlending,
           transparent: true,
-          depthWrite:  false,
-          side:        THREE.DoubleSide,
+          depthWrite: false,
+          side: THREE.DoubleSide,
         });
         const mesh = new THREE.Mesh(ringGeo, mat);
         mesh.position.z = -0.1;
@@ -192,14 +211,17 @@ export function HomeBackground() {
       }
 
       // First pulse fires shortly after canvas is ready
-      setTimeout(() => { if (!disposed) triggerPulse(pulseRings); }, 600);
+      setTimeout(() => {
+        if (!disposed) triggerPulse(pulseRings);
+      }, 600);
 
       // ── Bloom post-processing ─────────────────────────────────────────
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const RPClass   = (THREE as any).RenderPipeline ?? (THREE as any).PostProcessing;
-      const pipeline  = new RPClass(renderer);
+      const RPClass =
+        (THREE as any).RenderPipeline ?? (THREE as any).PostProcessing;
+      const pipeline = new RPClass(renderer);
       const scenePass = pass(scene, camera);
-      const sceneNode = scenePass.getTextureNode('output');
+      const sceneNode = scenePass.getTextureNode("output");
       const bloomNode = bloom(sceneNode, 0.7, 0.5, 0.65);
       pipeline.outputNode = sceneNode.add(bloomNode);
 
@@ -208,9 +230,9 @@ export function HomeBackground() {
 
       renderer.setAnimationLoop(() => {
         const now = performance.now();
-        const dt  = Math.min((now - lastTime) / 1000, 0.05);
-        lastTime  = now;
-        elapsed           += dt;
+        const dt = Math.min((now - lastTime) / 1000, 0.05);
+        lastTime = now;
+        elapsed += dt;
         timeSinceLastPulse += dt;
 
         // Auto-pulse trigger
@@ -239,13 +261,14 @@ export function HomeBackground() {
           }
 
           // Wrap around world edges
-          if      (p.x >  halfW + 0.6) p.x = -halfW - 0.6;
-          else if (p.x < -halfW - 0.6) p.x =  halfW + 0.6;
-          if      (p.y >  HALF_H + 0.6) p.y = -HALF_H - 0.6;
-          else if (p.y < -HALF_H - 0.6) p.y =  HALF_H + 0.6;
+          if (p.x > halfW + 0.6) p.x = -halfW - 0.6;
+          else if (p.x < -halfW - 0.6) p.x = halfW + 0.6;
+          if (p.y > HALF_H + 0.6) p.y = -HALF_H - 0.6;
+          else if (p.y < -HALF_H - 0.6) p.y = HALF_H + 0.6;
 
           // Opacity: gentle sine oscillation (0.18 – 0.58)
-          const opacity = 0.18 + 0.40 * (0.5 + 0.5 * Math.sin(elapsed * 0.6 + p.phase));
+          const opacity =
+            0.18 + 0.4 * (0.5 + 0.5 * Math.sin(elapsed * 0.6 + p.phase));
 
           _mat4.makeTranslation(p.x, p.y, 0);
           ambientMesh!.setMatrixAt(i, _mat4);
@@ -254,7 +277,8 @@ export function HomeBackground() {
         }
 
         ambientMesh!.instanceMatrix.needsUpdate = true;
-        if (ambientMesh!.instanceColor) ambientMesh!.instanceColor.needsUpdate = true;
+        if (ambientMesh!.instanceColor)
+          ambientMesh!.instanceColor.needsUpdate = true;
 
         // ── Update pulse rings ────────────────────────────────────────
         for (const ring of pulseRings) {
@@ -262,17 +286,18 @@ export function HomeBackground() {
           ring.life += dt;
 
           if (ring.life >= ring.maxLife) {
-            ring.active      = false;
+            ring.active = false;
             ring.mesh.visible = false;
             continue;
           }
 
-          const t      = ring.life / ring.maxLife;
-          const eased  = 1 - (1 - t) * (1 - t); // ease-out quad
-          const radius = HALF_H * 2.2 * eased;    // expand to ~2× screen half-height
+          const t = ring.life / ring.maxLife;
+          const eased = 1 - (1 - t) * (1 - t); // ease-out quad
+          const radius = HALF_H * 2.2 * eased; // expand to ~2× screen half-height
 
           ring.mesh.scale.set(radius, radius, 1);
-          (ring.mesh.material as THREE.MeshBasicMaterial).opacity = (1 - t) * 0.45;
+          (ring.mesh.material as THREE.MeshBasicMaterial).opacity =
+            (1 - t) * 0.45;
         }
 
         pipeline.render();
@@ -281,12 +306,12 @@ export function HomeBackground() {
       // ── Resize handling ───────────────────────────────────────────────
       resizeObserver = new ResizeObserver(() => {
         if (!renderer || disposed) return;
-        const W2     = container!.clientWidth;
-        const H2     = container!.clientHeight;
+        const W2 = container!.clientWidth;
+        const H2 = container!.clientHeight;
         const halfW2 = HALF_H * (W2 / H2);
 
-        camera.left  = -halfW2;
-        camera.right =  halfW2;
+        camera.left = -halfW2;
+        camera.right = halfW2;
         camera.updateProjectionMatrix();
         renderer.setSize(W2, H2);
       });
@@ -318,7 +343,7 @@ export function HomeBackground() {
     <div
       ref={containerRef}
       className="fixed inset-0"
-      style={{ zIndex: 0, pointerEvents: 'none' }}
+      style={{ zIndex: 0, pointerEvents: "none" }}
     />
   );
 }

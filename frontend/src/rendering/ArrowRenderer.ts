@@ -1,177 +1,208 @@
 import * as THREE from 'three/webgpu';
 import type { Direction } from '@/types';
 
-/** Pool size per direction — must be large enough for active arrows + 2 trail instances each */
+/** Pool size per direction */
 export const ARROW_POOL_SIZE = 80;
 
 const DIRECTIONS: Direction[] = ['left', 'down', 'up', 'right'];
 
-/** Neon color per direction (matches PRD Section 4.4) */
+/**
+ * Vibrant DDR-arcade colors per direction.
+ * These drive all three render layers (body + glow + highlight).
+ */
 export const DIRECTION_COLORS: Record<Direction, THREE.Color> = {
-  left: new THREE.Color(0xff00ff),  // magenta
-  down: new THREE.Color(0x00ffff),  // cyan
-  up: new THREE.Color(0x00ff88),    // green
-  right: new THREE.Color(0xff8800), // orange
+  left:  new THREE.Color(0xff1177),  // hot pink / magenta
+  down:  new THREE.Color(0x1144ff),  // royal blue
+  up:    new THREE.Color(0x00ddff),  // bright cyan
+  right: new THREE.Color(0xffcc00),  // gold / yellow
 };
 
 // CCW rotation (radians) around Z to reorient an up-pointing arrow
 const DIRECTION_QUATS: Record<Direction, THREE.Quaternion> = {
-  up: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)),
-  left: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI / 2)),
-  down: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI)),
+  up:    new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)),
+  left:  new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0,  Math.PI / 2)),
+  down:  new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0,  Math.PI)),
   right: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -Math.PI / 2)),
 };
 
 // Reusable objects — avoid GC pressure in the hot render path
-const _mat = new THREE.Matrix4();
-const _pos = new THREE.Vector3();
-const _scale = new THREE.Vector3(1, 1, 1);
+const _mat   = new THREE.Matrix4();
+const _pos   = new THREE.Vector3();
 const _color = new THREE.Color();
 
+// Per-layer uniform scales — applied in the instance matrix
+const _scaleGlow = new THREE.Vector3(1.28, 1.28, 1);  // outer glow ring
+const _scaleBody = new THREE.Vector3(1.00, 1.00, 1);  // main body
+const _scaleHL   = new THREE.Vector3(0.52, 0.52, 1);  // inner highlight sheen
+
+// Layer opacity weights (additive blending; outer ring reads as direction×GLOW_W)
+const GLOW_W = 0.28;   // dim ring border
+const BODY_W = 0.72;   // full-bright main color
+const HL_W   = 0.55;   // white-tinted center sheen
+
 /**
- * Procedural chevron arrow shape pointing in +Y, centered at origin.
- * Total extents: 0.9 × 0.9 world units.
+ * Classic DDR-style chunky arrow pointing in +Y, centered at origin.
  *
- *        *          ← tip  (0, 0.45)
- *       ***
- *      *   *
- * *   *     *   *   ← shoulders (±0.45, 0)
- * *   *     *   *
- *     *     *       ← inner shoulders (±0.20, 0)
- *     * * * *       ← body
- *     *     *
- *     * * * *       ← base (±0.20, -0.45)
+ * Shape: wide arrowhead with a visible shoulder "step" down into a short,
+ * broad body/stem.  Proportions chosen to match the chunky vintage DDR look:
+ * nearly as wide as the column gap, with a stubby tail.
+ *
+ *          *            ← tip      (0,    0.42)
+ *         * *
+ *        *   *
+ *  *    *     *    *   ← outer shoulders (±0.44, 0.06)
+ *  *  *         *  *   ← inner shoulders (±0.28, 0.06) — shoulder step
+ *     *         *      ← body sides
+ *     *  * * *  *      ← base      (±0.28, -0.26)
  */
 function createArrowGeometry(): THREE.ShapeGeometry {
   const shape = new THREE.Shape();
-  const aw = 0.45; // arrowhead half-width
-  const ah = 0.45; // tip height above center
-  const bw = 0.20; // body half-width
-  const bh = 0.45; // body depth below center
+  const aw   = 0.44;   // arrowhead half-width at shoulders
+  const ah   = 0.42;   // tip height above center
+  const bw   = 0.28;   // body (stem) half-width  — wide for chunkiness
+  const bh   = 0.26;   // body depth below center — short for chunkiness
+  const sy   = 0.06;   // shoulder Y — positive so the step notch is visible
 
-  shape.moveTo(0, ah);
-  shape.lineTo(aw, 0);
-  shape.lineTo(bw, 0);
-  shape.lineTo(bw, -bh);
-  shape.lineTo(-bw, -bh);
-  shape.lineTo(-bw, 0);
-  shape.lineTo(-aw, 0);
+  shape.moveTo(  0,  ah);
+  shape.lineTo( aw,  sy);   // right outer shoulder
+  shape.lineTo( bw,  sy);   // step in → right inner shoulder
+  shape.lineTo( bw, -bh);   // right base corner
+  shape.lineTo(-bw, -bh);   // left  base corner
+  shape.lineTo(-bw,  sy);   // step in → left  inner shoulder
+  shape.lineTo(-aw,  sy);   // left  outer shoulder
   shape.closePath();
 
   return new THREE.ShapeGeometry(shape);
 }
 
 /**
- * Manages four InstancedMeshes (one per direction) with a fixed-size object
- * pool per direction.  Arrows glow via additive blending: encoding "opacity"
- * as per-instance color intensity means a black instance is invisible while a
- * full-brightness instance emits its neon color onto the scene.
+ * Manages three InstancedMesh layers per direction (glow + body + highlight)
+ * to produce the classic DDR chunky multi-tone arrow look:
  *
- * Usage:
- *   const id = arrows.allocate('left');       // claim a free instance
- *   arrows.setPosition('left', id, x, y);     // world-space XY
- *   arrows.setOpacity('left', id, 1.0);        // 0 = invisible, 1 = full glow
- *   arrows.update();                            // flush to GPU (once per frame)
- *   ...
- *   arrows.release('left', id);                // return to pool
+ *   • Glow ring  (scale 1.28, dim):  soft dark border ring
+ *   • Body       (scale 1.00, full): main bright direction color
+ *   • Highlight  (scale 0.52, bright white): inner sheen / center glow
+ *
+ * All layers use additive blending; color intensity encodes "opacity" so that
+ * black = invisible.  Only dirty directions are flushed to the GPU each frame.
+ *
+ * Public API is unchanged from the single-layer version.
  */
 export class ArrowRenderer {
   private readonly scene: THREE.Scene;
   private readonly geometry: THREE.ShapeGeometry;
-  private readonly meshes = new Map<Direction, THREE.InstancedMesh>();
-  private readonly freePool = new Map<Direction, number[]>();
-  private readonly posX = new Map<Direction, Float32Array>();
-  private readonly posY = new Map<Direction, Float32Array>();
-  private readonly opacities = new Map<Direction, Float32Array>();
-  private readonly dirty = new Map<Direction, boolean>();
+
+  // Three render layers
+  private readonly glowMeshes = new Map<Direction, THREE.InstancedMesh>();
+  private readonly bodyMeshes = new Map<Direction, THREE.InstancedMesh>();
+  private readonly hlMeshes   = new Map<Direction, THREE.InstancedMesh>();
+
+  private readonly freePool   = new Map<Direction, number[]>();
+  private readonly posX       = new Map<Direction, Float32Array>();
+  private readonly posY       = new Map<Direction, Float32Array>();
+  private readonly opacities  = new Map<Direction, Float32Array>();
+  // Tracks exactly which pool slots changed this frame instead of iterating
+  // all 80 slots per direction.  Reduces setMatrixAt/setColorAt calls by ~95%
+  // during typical gameplay (only 5-20 active arrows out of 80 slots).
+  private readonly dirtySlots = new Map<Direction, Set<number>>();
 
   constructor(scene: THREE.Scene) {
-    this.scene = scene;
+    this.scene    = scene;
     this.geometry = createArrowGeometry();
     for (const dir of DIRECTIONS) {
       this.initDirection(dir);
     }
   }
 
-  private initDirection(dir: Direction): void {
-    const material = new THREE.MeshBasicMaterial({
+  private makeMesh(scale: THREE.Vector3): THREE.InstancedMesh {
+    const mat = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
     });
-
-    const mesh = new THREE.InstancedMesh(this.geometry, material, ARROW_POOL_SIZE);
+    const mesh = new THREE.InstancedMesh(this.geometry, mat, ARROW_POOL_SIZE);
     mesh.count = ARROW_POOL_SIZE;
-    mesh.frustumCulled = false; // we manage culling ourselves
+    mesh.frustumCulled = false;
 
-    const px = new Float32Array(ARROW_POOL_SIZE);
-    const py = new Float32Array(ARROW_POOL_SIZE);
-    const ops = new Float32Array(ARROW_POOL_SIZE);
-    const free: number[] = [];
-    const quat = DIRECTION_QUATS[dir];
-
+    // Park all instances off-screen
+    _pos.set(0, -1000, 0);
+    const q = new THREE.Quaternion(); // identity — will be overridden per-direction in update
+    _mat.compose(_pos, q, scale);
     for (let i = 0; i < ARROW_POOL_SIZE; i++) {
-      // Park off-screen with zero color (invisible in additive blending)
-      px[i] = 0;
-      py[i] = -1000;
-      ops[i] = 0;
-
-      _pos.set(0, -1000, 0);
-      _mat.compose(_pos, quat, _scale);
       mesh.setMatrixAt(i, _mat);
       mesh.setColorAt(i, new THREE.Color(0, 0, 0));
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    return mesh;
+  }
 
+  private initDirection(dir: Direction): void {
+    const glowMesh = this.makeMesh(_scaleGlow);
+    const bodyMesh = this.makeMesh(_scaleBody);
+    const hlMesh   = this.makeMesh(_scaleHL);
+
+    // Add to scene in depth order: glow behind, body middle, highlight front
+    this.scene.add(glowMesh);
+    this.scene.add(bodyMesh);
+    this.scene.add(hlMesh);
+
+    this.glowMeshes.set(dir, glowMesh);
+    this.bodyMeshes.set(dir, bodyMesh);
+    this.hlMeshes.set(dir, hlMesh);
+
+    const px   = new Float32Array(ARROW_POOL_SIZE);
+    const py   = new Float32Array(ARROW_POOL_SIZE);
+    const ops  = new Float32Array(ARROW_POOL_SIZE);
+    const free: number[] = [];
+
+    for (let i = 0; i < ARROW_POOL_SIZE; i++) {
+      px[i]  = 0;
+      py[i]  = -1000;
+      ops[i] = 0;
       free.push(i);
     }
 
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-
-    this.meshes.set(dir, mesh);
     this.freePool.set(dir, free);
     this.posX.set(dir, px);
     this.posY.set(dir, py);
     this.opacities.set(dir, ops);
-    this.dirty.set(dir, false);
-
-    this.scene.add(mesh);
+    this.dirtySlots.set(dir, new Set());
   }
 
   // ---------------------------------------------------------------------------
   // Pool API
   // ---------------------------------------------------------------------------
 
-  /** Claim a free arrow instance. Returns its index, or -1 if pool exhausted. */
   allocate(dir: Direction): number {
     const free = this.freePool.get(dir)!;
     return free.length > 0 ? free.pop()! : -1;
   }
 
-  /** Return an instance to the pool and hide it immediately. */
   release(dir: Direction, id: number): void {
     if (id < 0 || id >= ARROW_POOL_SIZE) return;
-    this.posX.get(dir)![id] = 0;
-    this.posY.get(dir)![id] = -1000;
+    this.posX.get(dir)![id]      = 0;
+    this.posY.get(dir)![id]      = -1000;
     this.opacities.get(dir)![id] = 0;
-    this.dirty.set(dir, true);
+    this.dirtySlots.get(dir)!.add(id);
     this.freePool.get(dir)!.push(id);
   }
 
   // ---------------------------------------------------------------------------
-  // Per-instance setters (all lazy — flushed in update())
+  // Per-instance setters — lazy, flushed in update()
   // ---------------------------------------------------------------------------
 
   setPosition(dir: Direction, id: number, x: number, y: number): void {
     this.posX.get(dir)![id] = x;
     this.posY.get(dir)![id] = y;
-    this.dirty.set(dir, true);
+    this.dirtySlots.get(dir)!.add(id);
   }
 
   setOpacity(dir: Direction, id: number, opacity: number): void {
     this.opacities.get(dir)![id] = Math.max(0, Math.min(1, opacity));
-    this.dirty.set(dir, true);
+    this.dirtySlots.get(dir)!.add(id);
   }
 
   setVisible(dir: Direction, id: number, visible: boolean): void {
@@ -179,38 +210,61 @@ export class ArrowRenderer {
   }
 
   // ---------------------------------------------------------------------------
-  // Frame update
+  // Frame update — flush dirty directions to GPU
   // ---------------------------------------------------------------------------
 
-  /**
-   * Flush dirty instance data to the GPU.  Call exactly once per frame, before
-   * rendering.  Only directions that changed since the last update are touched.
-   */
   update(): void {
     for (const dir of DIRECTIONS) {
-      if (!this.dirty.get(dir)) continue;
+      const slots = this.dirtySlots.get(dir)!;
+      if (slots.size === 0) continue;
 
-      const mesh = this.meshes.get(dir)!;
-      const base = DIRECTION_COLORS[dir];
-      const quat = DIRECTION_QUATS[dir];
-      const px = this.posX.get(dir)!;
-      const py = this.posY.get(dir)!;
-      const ops = this.opacities.get(dir)!;
+      const glowMesh = this.glowMeshes.get(dir)!;
+      const bodyMesh = this.bodyMeshes.get(dir)!;
+      const hlMesh   = this.hlMeshes.get(dir)!;
+      const base     = DIRECTION_COLORS[dir];
+      const quat     = DIRECTION_QUATS[dir];
+      const px       = this.posX.get(dir)!;
+      const py       = this.posY.get(dir)!;
+      const ops      = this.opacities.get(dir)!;
 
-      for (let i = 0; i < ARROW_POOL_SIZE; i++) {
-        _pos.set(px[i], py[i], 0);
-        _mat.compose(_pos, quat, _scale);
-        mesh.setMatrixAt(i, _mat);
-
-        // Encode opacity as color intensity — black = invisible in additive blend
+      for (const i of slots) {
         const o = ops[i];
-        _color.setRGB(base.r * o, base.g * o, base.b * o);
-        mesh.setColorAt(i, _color);
-      }
+        const x = px[i];
+        const y = py[i];
 
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      this.dirty.set(dir, false);
+        // Glow ring — behind body, dim direction color
+        _pos.set(x, y, -0.01);
+        _mat.compose(_pos, quat, _scaleGlow);
+        glowMesh.setMatrixAt(i, _mat);
+        _color.setRGB(base.r * o * GLOW_W, base.g * o * GLOW_W, base.b * o * GLOW_W);
+        glowMesh.setColorAt(i, _color);
+
+        // Body — main color
+        _pos.set(x, y, 0);
+        _mat.compose(_pos, quat, _scaleBody);
+        bodyMesh.setMatrixAt(i, _mat);
+        _color.setRGB(base.r * o * BODY_W, base.g * o * BODY_W, base.b * o * BODY_W);
+        bodyMesh.setColorAt(i, _color);
+
+        // Highlight — small bright white-tinted center sheen
+        _pos.set(x, y, 0.01);
+        _mat.compose(_pos, quat, _scaleHL);
+        hlMesh.setMatrixAt(i, _mat);
+        // Blend toward white: lerp direction color to white at HL_W intensity
+        const hr = (base.r * 0.4 + 0.6) * o * HL_W;
+        const hg = (base.g * 0.4 + 0.6) * o * HL_W;
+        const hb = (base.b * 0.4 + 0.6) * o * HL_W;
+        _color.setRGB(hr, hg, hb);
+        hlMesh.setColorAt(i, _color);
+      }
+      slots.clear();
+
+      glowMesh.instanceMatrix.needsUpdate = true;
+      bodyMesh.instanceMatrix.needsUpdate = true;
+      hlMesh.instanceMatrix.needsUpdate   = true;
+      if (glowMesh.instanceColor) glowMesh.instanceColor.needsUpdate = true;
+      if (bodyMesh.instanceColor) bodyMesh.instanceColor.needsUpdate = true;
+      if (hlMesh.instanceColor)   hlMesh.instanceColor.needsUpdate   = true;
     }
   }
 
@@ -220,10 +274,17 @@ export class ArrowRenderer {
 
   dispose(): void {
     this.geometry.dispose();
-    for (const [, mesh] of this.meshes) {
-      (mesh.material as THREE.Material).dispose();
-      this.scene.remove(mesh);
+    for (const dir of DIRECTIONS) {
+      for (const map of [this.glowMeshes, this.bodyMeshes, this.hlMeshes]) {
+        const mesh = map.get(dir);
+        if (mesh) {
+          (mesh.material as THREE.Material).dispose();
+          this.scene.remove(mesh);
+        }
+      }
     }
-    this.meshes.clear();
+    this.glowMeshes.clear();
+    this.bodyMeshes.clear();
+    this.hlMeshes.clear();
   }
 }

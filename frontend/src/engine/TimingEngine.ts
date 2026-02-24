@@ -216,33 +216,54 @@ export class TimingEngine {
   /**
    * Returns the current song position in seconds.
    *
-   * While playing, periodically resyncs to the audio element to correct drift.
+   * While playing, periodically resyncs to the audio source to correct drift.
+   * Only corrects forward (never backward) to prevent visible arrow jumps.
    * While paused, returns the frozen position from the last `pause()` call.
    */
   getCurrentTime(): number {
     if (this._isPaused) return this._pausedAt;
 
     const now = performance.now();
+    const freeRunning = this._baseAudioTime + (now - this._basePerf) / 1000;
 
     // Periodic resync — corrects accumulated clock drift.
     // _timeSource (YouTube) takes priority over _audioElement (local audio).
     if (now - this._lastResyncPerf >= RESYNC_INTERVAL_MS) {
+      let audioTime: number | null = null;
+
       if (this._timeSource) {
-        const sourceTime = this._timeSource();
-        if (sourceTime !== null) {
-          this._baseAudioTime = sourceTime;
-          this._basePerf = now;
-          this._lastResyncPerf = now;
-        }
+        audioTime = this._timeSource();
       } else if (this._audioElement) {
-        // Normalise by segmentStart so getCurrentTime() is always game-relative.
-        this._baseAudioTime = this._audioElement.currentTime - this.segmentStart;
-        this._basePerf = now;
+        audioTime = this._audioElement.currentTime - this.segmentStart;
+      }
+
+      if (audioTime !== null) {
         this._lastResyncPerf = now;
+        const drift = audioTime - freeRunning; // negative = clock ahead
+
+        if (drift > 0.5) {
+          // Large forward jump needed — snap (e.g. after a seek)
+          this._baseAudioTime = audioTime;
+          this._basePerf = now;
+          return audioTime;
+        }
+
+        if (drift > 0) {
+          // Clock behind audio — nudge forward (less visually jarring)
+          const corrected = freeRunning + drift * 0.5;
+          this._baseAudioTime = corrected;
+          this._basePerf = now;
+          return corrected;
+        }
+
+        // drift <= 0: clock ahead of audio — don't correct backward.
+        // Preserves smooth arrow scrolling. The offset (typically <100ms
+        // from audio startup delay) is imperceptible and within judgment
+        // windows (±80ms Perfect, ±140ms Great).
       }
     }
 
-    return this._baseAudioTime + (now - this._basePerf) / 1000;
+    return freeRunning;
   }
 
   /**
@@ -275,10 +296,30 @@ export class TimingEngine {
   judge(direction: Direction, pressTime: number): JudgmentResult | null {
     const pressTimeSong = this.getSongTimeAt(pressTime);
 
+    const effectivePerfect = PERFECT_WINDOW_MS + this.touchWindowBonus;
+    const effectiveGreat   = GREAT_WINDOW_MS   + this.touchWindowBonus;
+
+    // Binary search: find the first note whose time >= (pressTime - window).
+    // Include audioOffsetMs headroom so notes near the edge are never skipped.
+    const windowS = (effectiveGreat + Math.abs(this.audioOffsetMs)) / 1000;
+    const lo = pressTimeSong - windowS;
+    const hi = pressTimeSong + windowS;
+
+    let left = 0;
+    let right = this._notes.length;
+    while (left < right) {
+      const mid = (left + right) >>> 1;
+      if (this._notes[mid].time < lo) left = mid + 1;
+      else right = mid;
+    }
+
     let nearest: TrackedNote | null = null;
     let nearestRawOffsetMs = Infinity;
 
-    for (const tracked of this._notes) {
+    // Linear scan only over notes within the ±window slice (typically 1-4 notes)
+    for (let i = left; i < this._notes.length; i++) {
+      const tracked = this._notes[i];
+      if (tracked.time > hi) break;
       if (tracked.direction !== direction || tracked.judged) continue;
 
       // offsetMs > 0 → player pressed late; < 0 → pressed early
@@ -296,9 +337,6 @@ export class TimingEngine {
     // audioOffsetMs > 0 means audio output is delayed, player presses late →
     // subtract the offset so on-time presses score as Perfect.
     const correctedOffsetMs = nearestRawOffsetMs - this.audioOffsetMs;
-
-    const effectivePerfect = PERFECT_WINDOW_MS + this.touchWindowBonus;
-    const effectiveGreat   = GREAT_WINDOW_MS   + this.touchWindowBonus;
 
     if (Math.abs(correctedOffsetMs) > effectiveGreat) {
       return null; // Arrow is outside the hit window — treat as empty press

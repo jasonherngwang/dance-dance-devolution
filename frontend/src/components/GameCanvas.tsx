@@ -1,34 +1,46 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import * as THREE from 'three/webgpu';
-import { ArrowRenderer } from '@/rendering/ArrowRenderer';
-import { ReceptorRenderer } from '@/rendering/ReceptorRenderer';
-import { ArrowScrollManager } from '@/rendering/ArrowScrollManager';
-import { HitEffectRenderer } from '@/rendering/HitEffectRenderer';
-import { BackgroundRenderer } from '@/rendering/BackgroundRenderer';
-import { PostProcessingManager } from '@/rendering/PostProcessingManager';
-import { TimingEngine } from '@/engine/TimingEngine';
-import { AudioPlayer } from '@/engine/AudioPlayer';
-import { YouTubePlayer } from '@/engine/YouTubePlayer';
-import { InputHandler } from '@/engine/InputHandler';
-import { TouchInputZones } from './TouchInputZones';
-import { getStoredAudioOffset } from './AudioOffsetPanel';
-import { JudgmentDisplay } from './JudgmentDisplay';
-import { ComboDisplay, getHypeLevel } from './ComboDisplay';
-import { HypeOverlay } from './HypeOverlay';
-import { ScreenEffects } from './ScreenEffects';
-import { GameplayHUD } from './GameplayHUD';
-import { CountdownOverlay } from './CountdownOverlay';
-import type { CountdownPhase } from './CountdownOverlay';
-import { useGameStore } from '@/stores';
-import type { ChartData, Difficulty, Direction, JudgmentResult, JudgmentType, Note } from '@/types';
+import { useCallback, useEffect, useRef, useState } from "react";
+import * as THREE from "three/webgpu";
+import { ArrowRenderer } from "@/rendering/ArrowRenderer";
+import { ReceptorRenderer } from "@/rendering/ReceptorRenderer";
+import { ArrowScrollManager } from "@/rendering/ArrowScrollManager";
+import { HitEffectRenderer } from "@/rendering/HitEffectRenderer";
+import { BackgroundRenderer } from "@/rendering/BackgroundRenderer";
+import { PostProcessingManager } from "@/rendering/PostProcessingManager";
+import { TimingEngine } from "@/engine/TimingEngine";
+import { AudioPlayer } from "@/engine/AudioPlayer";
+import { YouTubePlayer } from "@/engine/YouTubePlayer";
+import { InputHandler } from "@/engine/InputHandler";
+import { TouchInputZones } from "./TouchInputZones";
+import { getStoredAudioOffset } from "./AudioOffsetPanel";
+import { JudgmentDisplay } from "./JudgmentDisplay";
+import { ComboDisplay, getHypeLevel } from "./ComboDisplay";
+import { HypeOverlay } from "./HypeOverlay";
+import { ScreenEffects } from "./ScreenEffects";
+import { VideoComboEffects } from "./VideoComboEffects";
+import { GameplayHUD } from "./GameplayHUD";
+import { CountdownOverlay } from "./CountdownOverlay";
+import type { CountdownPhase } from "./CountdownOverlay";
+import { useGameStore } from "@/stores";
+import type {
+  ChartData,
+  Difficulty,
+  Direction,
+  JudgmentResult,
+  JudgmentType,
+  Note,
+} from "@/types";
 
 /** Detect touch-primary devices */
 function isTouchDevice(): boolean {
-  return typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0;
+  return typeof navigator !== "undefined" && navigator.maxTouchPoints > 0;
 }
 
 function isWebGPUAvailable(): boolean {
-  return typeof navigator !== 'undefined' && 'gpu' in navigator && navigator.gpu !== null;
+  return (
+    typeof navigator !== "undefined" &&
+    "gpu" in navigator &&
+    navigator.gpu !== null
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -36,14 +48,14 @@ function isWebGPUAvailable(): boolean {
 // ---------------------------------------------------------------------------
 const DEMO_DURATION = 16; // seconds before looping
 const DEMO_BPM = 120;
-const DEMO_DIRS: Direction[] = ['left', 'down', 'up', 'right'];
+const DEMO_DIRS: Direction[] = ["left", "down", "up", "right"];
 
 function buildDemoNotes(): Note[] {
   const notes: Note[] = [];
   for (let i = 0; i * 0.5 < DEMO_DURATION; i++) {
     notes.push({
       time: i * 0.5,
-      type: 'tap',
+      type: "tap",
       direction: DEMO_DIRS[i % DEMO_DIRS.length],
     });
   }
@@ -51,8 +63,8 @@ function buildDemoNotes(): Note[] {
   for (let i = 4; i * 0.5 < DEMO_DURATION; i += 8) {
     notes.push({
       time: i * 0.5,
-      type: 'tap',
-      direction: ['left', 'right'],
+      type: "tap",
+      direction: ["left", "right"],
     });
   }
   return notes.sort((a, b) => a.time - b.time);
@@ -63,13 +75,17 @@ const DEMO_NOTES = buildDemoNotes();
 /** Total judgeable direction slots for a note list (flattened). */
 function countJudgeableNotes(notes: Note[]): number {
   return notes.reduce(
-    (acc, note) => acc + (Array.isArray(note.direction) ? note.direction.length : 1),
+    (acc, note) =>
+      acc + (Array.isArray(note.direction) ? note.direction.length : 1),
     0,
   );
 }
 
 // Combo milestones that trigger chromatic-aberration flash
 const COMBO_MILESTONES = [25, 50, 100];
+
+// Volume fade-in duration when audio starts at GO!
+const AUDIO_FADE_IN_MS = 2000;
 
 // ---------------------------------------------------------------------------
 // Props
@@ -97,32 +113,81 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
 
   // Whether touch input is currently enabled (matches game state)
   const [touchInputEnabled, setTouchInputEnabled] = useState(!chartData);
+  // True while the YouTube player is buffering mid-game (pauses game clock)
+  const [ytBuffering, setYtBuffering] = useState(false);
 
   // Shared input handler ref so TouchInputZones can use the same callback
-  const inputHandlerCallbackRef = useRef<((direction: Direction, timestamp: number) => void) | null>(null);
+  const inputHandlerCallbackRef = useRef<
+    ((direction: Direction, timestamp: number) => void) | null
+  >(null);
 
   // ---- Imperative callback refs (set by child components on mount) ----
-  const judgmentTriggerRef  = useRef<((j: JudgmentType, d: Direction) => void) | null>(null);
-  const comboDisplayFnRef   = useRef<((combo: number, isBreak: boolean) => void) | null>(null);
-  const hypeOverlayFnRef    = useRef<((combo: number, isBreak: boolean) => void) | null>(null);
+  const judgmentTriggerRef = useRef<
+    ((j: JudgmentType, d: Direction) => void) | null
+  >(null);
+  const comboDisplayFnRef = useRef<
+    ((combo: number, isBreak: boolean) => void) | null
+  >(null);
+  const hypeOverlayFnRef = useRef<
+    ((combo: number, isBreak: boolean) => void) | null
+  >(null);
   const chromaticTriggerRef = useRef<(() => void) | null>(null);
-  const flashTriggerRef     = useRef<(() => void) | null>(null);
-  const hudUpdateRef        = useRef<((score: number, progress: number) => void) | null>(null);
-  const countdownUpdateRef  = useRef<((phase: CountdownPhase) => void) | null>(null);
+  const flashTriggerRef = useRef<(() => void) | null>(null);
+  const hudUpdateRef = useRef<
+    ((score: number, progress: number) => void) | null
+  >(null);
+  const countdownUpdateRef = useRef<((phase: CountdownPhase) => void) | null>(
+    null,
+  );
+  const videoEffectsFnRef = useRef<
+    ((combo: number, isBreak: boolean) => void) | null
+  >(null);
 
   // Stable callbacks for child registrations (avoid re-creating on each render)
-  const onRegisterFlash      = useCallback((fn: () => void)                          => { flashTriggerRef.current      = fn; }, []);
-  const onRegisterHypeUpdate = useCallback((fn: (c: number, b: boolean) => void)     => { hypeOverlayFnRef.current     = fn; }, []);
-  const onRegisterChromatic  = useCallback((fn: () => void)                          => { chromaticTriggerRef.current  = fn; }, []);
-  const onRegisterCombo      = useCallback((fn: (c: number, b: boolean) => void)     => { comboDisplayFnRef.current    = fn; }, []);
-  const onRegisterJudgment   = useCallback((fn: (j: JudgmentType, d: Direction) => void) => { judgmentTriggerRef.current = fn; }, []);
-  const onRegisterHUD        = useCallback((fn: (score: number, progress: number) => void) => { hudUpdateRef.current = fn; }, []);
-  const onRegisterCountdown  = useCallback((fn: (phase: CountdownPhase) => void)     => { countdownUpdateRef.current  = fn; }, []);
+  const onRegisterFlash = useCallback((fn: () => void) => {
+    flashTriggerRef.current = fn;
+  }, []);
+  const onRegisterHypeUpdate = useCallback(
+    (fn: (c: number, b: boolean) => void) => {
+      hypeOverlayFnRef.current = fn;
+    },
+    [],
+  );
+  const onRegisterChromatic = useCallback((fn: () => void) => {
+    chromaticTriggerRef.current = fn;
+  }, []);
+  const onRegisterCombo = useCallback((fn: (c: number, b: boolean) => void) => {
+    comboDisplayFnRef.current = fn;
+  }, []);
+  const onRegisterJudgment = useCallback(
+    (fn: (j: JudgmentType, d: Direction) => void) => {
+      judgmentTriggerRef.current = fn;
+    },
+    [],
+  );
+  const onRegisterHUD = useCallback(
+    (fn: (score: number, progress: number) => void) => {
+      hudUpdateRef.current = fn;
+    },
+    [],
+  );
+  const onRegisterCountdown = useCallback(
+    (fn: (phase: CountdownPhase) => void) => {
+      countdownUpdateRef.current = fn;
+    },
+    [],
+  );
+  const onRegisterVideoEffects = useCallback(
+    (fn: (c: number, b: boolean) => void) => {
+      videoEffectsFnRef.current = fn;
+    },
+    [],
+  );
 
   // Whether we are running real gameplay (vs demo)
   const isRealGame = chartData !== null;
   // Whether the active chart uses YouTube IFrame for audio
-  const isYouTubeGame = chartData?.source === 'youtube';
+  const isYouTubeGame = chartData?.source === "youtube";
 
   useEffect(() => {
     if (!webGPUSupported || !containerRef.current) return;
@@ -134,15 +199,27 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     const container = containerRef.current;
 
     // Determine which notes / duration / BPM to use
-    const notes: Note[]   = chartData ? chartData.charts[difficulty].notes : DEMO_NOTES;
-    const chartDuration   = chartData ? chartData.duration                 : DEMO_DURATION;
-    const bpm             = chartData ? chartData.bpm                      : DEMO_BPM;
-    const beatInterval    = 60 / bpm;  // seconds per beat
+    const rawNotes: Note[] = chartData
+      ? chartData.charts[difficulty].notes
+      : DEMO_NOTES;
+    const chartDuration = chartData ? chartData.duration : DEMO_DURATION;
+
+    // Lead-in: shift real-game note times forward so the music plays for 2
+    // seconds before the first arrow arrives.  Any remaining initialization
+    // stalls (audio decoder, video frame decode) happen during those 2 seconds
+    // rather than on the first note the player has to hit.  Demo mode is
+    // unaffected — it loops continuously and doesn't need a lead-in.
+    const LEAD_IN_S = 2;
+    const notes: Note[] = isRealGame
+      ? rawNotes.map((n) => ({ ...n, time: n.time + LEAD_IN_S }))
+      : rawNotes;
+    const bpm = chartData ? chartData.bpm : DEMO_BPM;
+    const beatInterval = 60 / bpm; // seconds per beat
 
     // Total judgeable slots — for game-end detection in real mode
-    const totalNotes  = isRealGame ? countJudgeableNotes(notes) : 0;
-    const judgedCountRef  = { current: 0 };
-    const gameEndedRef    = { current: false };
+    const totalNotes = isRealGame ? countJudgeableNotes(notes) : 0;
+    const judgedCountRef = { current: 0 };
+    const gameEndedRef = { current: false };
 
     // Reset store for a fresh game session
     if (isRealGame) {
@@ -156,17 +233,31 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
 
     // For YouTube songs, use alpha=true so the canvas is transparent and the
     // video below shows through.  For local/demo, keep alpha off (solid dark bg).
-    const renderer = new THREE.WebGPURenderer({ antialias: true, alpha: isYouTubeGame });
+    const renderer = new THREE.WebGPURenderer({
+      antialias: true,
+      alpha: isYouTubeGame,
+    });
     // Cap pixel ratio on mobile to reduce GPU fill-rate cost.
     // High-DPI mobile screens (3× DPR) would otherwise render 9× the pixels.
-    renderer.setPixelRatio(isMobile ? Math.min(window.devicePixelRatio, 1.5) : window.devicePixelRatio);
+    renderer.setPixelRatio(
+      isMobile
+        ? Math.min(window.devicePixelRatio, 1.5)
+        : window.devicePixelRatio,
+    );
     renderer.setSize(container.clientWidth, container.clientHeight);
+    // Explicitly clear to transparent so the YouTube iframe behind the canvas shows through.
+    // PostProcessing (bloom pipeline) composites into an opaque framebuffer, so YouTube games
+    // must render directly via renderer.render() rather than postProcessing.render().
+    if (isYouTubeGame) {
+      renderer.setClearColor(new THREE.Color(0x000000), 0);
+      renderer.domElement.style.background = "transparent";
+    }
     container.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
     // Transparent canvas for YouTube (background comes from video + CSS).
     // Solid dark background for local audio and demo mode.
-    scene.background = isYouTubeGame ? null : new THREE.Color(0x080810);
+    scene.background = isYouTubeGame ? null : new THREE.Color(0x050008); // very dark purple, DDR-authentic
 
     const VIEW_HEIGHT = 10;
     const aspect = container.clientWidth / container.clientHeight;
@@ -184,14 +275,14 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
       const w = container.clientWidth;
       const h = container.clientHeight;
       const a = w / h;
-      camera.left   = (-VIEW_HEIGHT * a) / 2;
-      camera.right  = (VIEW_HEIGHT * a) / 2;
-      camera.top    = VIEW_HEIGHT / 2;
+      camera.left = (-VIEW_HEIGHT * a) / 2;
+      camera.right = (VIEW_HEIGHT * a) / 2;
+      camera.top = VIEW_HEIGHT / 2;
       camera.bottom = -VIEW_HEIGHT / 2;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
     }
-    window.addEventListener('resize', onResize);
+    window.addEventListener("resize", onResize);
 
     // -----------------------------------------------------------------------
     // Engine subsystems
@@ -214,7 +305,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     let audioPlayer: AudioPlayer | null = null;
     let audioStarted = false;
 
-    if (isRealGame && chartData.source === 'local' && chartData.audio_url) {
+    if (isRealGame && chartData.source === "local" && chartData.audio_url) {
       audioPlayer = new AudioPlayer();
       timingEngine.segmentStart = chartData.segment_start ?? 0;
 
@@ -224,7 +315,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
       audioPlayer
         .load(chartData.audio_url, chartData.segment_start ?? 0)
         .catch((err: unknown) => {
-          console.warn('[AudioPlayer] Failed to load audio:', err);
+          console.warn("[AudioPlayer] Failed to load audio:", err);
         });
     }
 
@@ -232,26 +323,67 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     let ytPlayer: YouTubePlayer | null = null;
     let ytStarted = false;
 
-    if (isRealGame && chartData.source === 'youtube' && chartData.video_id && ytContainerRef.current) {
+    if (
+      isRealGame &&
+      chartData.source === "youtube" &&
+      chartData.video_id &&
+      ytContainerRef.current
+    ) {
       ytPlayer = new YouTubePlayer();
+
+      // Log YouTube playback errors so they're visible in DevTools.
+      // Common error 101/150 means the video owner has disabled embedding.
+      ytPlayer.onError = (code) => {
+        console.error(
+          "[YouTube] Playback error code",
+          code,
+          "— if this is 101/150 the video owner has disabled embedding.",
+        );
+      };
+
+      // Pause game clock when YouTube stops playing (buffering, ad gap, end of ad),
+      // and resume when playback resumes.  Pre-roll ads report state=1 while playing,
+      // so they are indistinguishable from real video — the clock drifts during the ad
+      // and resyncs via setTimeSource once the actual video starts.
+      ytPlayer.onStateChange = (state) => {
+        if (!ytStarted) return; // ignore state changes before GO!
+        if (state === 1 /* PLAYING */) {
+          setYtBuffering(false);
+          timingEngine.resume();
+        } else {
+          setYtBuffering(true);
+          timingEngine.pause();
+        }
+      };
+
       const segStart = chartData.segment_start ?? 0;
 
       // Create an inner element for YouTube to replace with an iframe.
       // Using a child (not the container itself) avoids React DOM conflicts
       // since YouTube replaces the target element with an <iframe>.
-      const ytInner = document.createElement('div');
-      ytInner.style.width = '100%';
-      ytInner.style.height = '100%';
+      const ytInner = document.createElement("div");
+      ytInner.style.width = "100%";
+      ytInner.style.height = "100%";
       ytContainerRef.current.appendChild(ytInner);
 
       ytPlayer
         .load(ytInner, chartData.video_id, segStart)
         .then(() => {
-          // Player is ready — setTimeSource is wired at "GO" so the countdown
-          // period doesn't corrupt the clock anchor.
+          // If GO! already happened while the video was loading (video took >3s
+          // to buffer), start playback immediately — the animation loop's
+          // countdown block already exited and won't call play() any more.
+          if (!ytStarted && inputEnabled) {
+            ytStarted = true;
+            const currentGameTime = timingEngine.getCurrentTime();
+            ytPlayer!.seekTo(currentGameTime);
+            ytPlayer!.play();
+            ytPlayer!.fadeIn(AUDIO_FADE_IN_MS);
+            timingEngine.setTimeSource(() => ytPlayer!.getCurrentTime());
+          }
+          // Otherwise the countdown block will handle it at GO!
         })
         .catch((err: unknown) => {
-          console.warn('[YouTubePlayer] Failed to load:', err);
+          console.warn("[YouTubePlayer] Failed to load:", err);
         });
     }
 
@@ -260,13 +392,19 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     timingEngine.play(isRealGame ? -3 : 0);
 
     const postProcessing = new PostProcessingManager(renderer, scene, camera);
-    const background     = new BackgroundRenderer(scene);
-    const arrowRenderer  = new ArrowRenderer(scene);
-    const scrollManager  = new ArrowScrollManager(arrowRenderer);
+    // YouTube games use the video as the background — skip the animated rings
+    // so the transparent canvas lets the iframe show through.
+    const background = isYouTubeGame ? null : new BackgroundRenderer(scene);
+    const arrowRenderer = new ArrowRenderer(scene);
+    const scrollManager = new ArrowScrollManager(arrowRenderer);
     scrollManager.scrollMultiplier = 2;
     scrollManager.loadChart(notes);
     const receptorRenderer = new ReceptorRenderer(scene);
-    const hitEffects       = new HitEffectRenderer(scene);
+    const hitEffects = new HitEffectRenderer(scene);
+    // Pre-warm WebGPU render pipelines for hit effects during the countdown
+    // so the first note hit at GO! doesn't trigger a 50-200ms pipeline stall.
+    hitEffects.prewarm();
+    receptorRenderer.prewarm();
 
     // -----------------------------------------------------------------------
     // Mobile performance optimizations (Issue 34)
@@ -280,7 +418,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     }
 
     // FPS tracking for adaptive quality (checked every 60 frames on mobile)
-    let fpsFrameCount  = 0;
+    let fpsFrameCount = 0;
     let fpsWindowStart = performance.now();
 
     // -----------------------------------------------------------------------
@@ -292,7 +430,8 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     function notifyCombo(combo: number, isBreak: boolean) {
       comboDisplayFnRef.current?.(combo, isBreak);
       hypeOverlayFnRef.current?.(combo, isBreak);
-      background.setComboLevel(getHypeLevel(combo));
+      videoEffectsFnRef.current?.(combo, isBreak);
+      background?.setComboLevel(getHypeLevel(combo));
     }
 
     function resetCombo() {
@@ -316,7 +455,11 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     }
 
     function checkGameEnd() {
-      if (isRealGame && !gameEndedRef.current && judgedCountRef.current >= totalNotes) {
+      if (
+        isRealGame &&
+        !gameEndedRef.current &&
+        judgedCountRef.current >= totalNotes
+      ) {
         gameEndedRef.current = true;
         // Small delay so the last hit effects play out before ending
         setTimeout(endGameSession, 500);
@@ -334,7 +477,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
         judgedCountRef.current += 1;
         useGameStore.getState().processJudgment({
           hit: false,
-          judgment: 'miss',
+          judgment: "miss",
           offsetMs: 0,
           noteIndex,
           direction: dir,
@@ -366,11 +509,17 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
         audioStarted = true;
         const currentGameTime = timingEngine.getCurrentTime();
         audioPlayer.seek(currentGameTime);
-        audioPlayer.play().then(() => {
-          if (audioPlayer) timingEngine.setAudioElement(audioPlayer.element);
-        }).catch((err: unknown) => {
-          console.warn('[AudioPlayer] play() failed:', err);
-        });
+        audioPlayer
+          .play()
+          .then(() => {
+            if (audioPlayer) {
+              audioPlayer.fadeIn(AUDIO_FADE_IN_MS);
+              timingEngine.setAudioElement(audioPlayer.element);
+            }
+          })
+          .catch((err: unknown) => {
+            console.warn("[AudioPlayer] play() failed:", err);
+          });
       }
 
       // Fallback for YouTube: start on first keypress if not yet started
@@ -379,6 +528,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
         const currentGameTime = timingEngine.getCurrentTime();
         ytPlayer.seekTo(currentGameTime);
         ytPlayer.play();
+        ytPlayer.fadeIn(AUDIO_FADE_IN_MS);
         timingEngine.setTimeSource(() => ytPlayer!.getCurrentTime());
       }
 
@@ -399,7 +549,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
 
       // Combo tracking
       const prevCombo = comboRef.current;
-      if (judgment === 'miss') {
+      if (judgment === "miss") {
         comboRef.current = 0;
         notifyCombo(0, true);
         hitEffects.setHypeLevel(0);
@@ -408,7 +558,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
         const newCombo = comboRef.current;
         notifyCombo(newCombo, false);
 
-        const newLevel  = getHypeLevel(newCombo);
+        const newLevel = getHypeLevel(newCombo);
         const prevLevel = getHypeLevel(prevCombo);
         if (newLevel !== prevLevel) hitEffects.setHypeLevel(newLevel);
 
@@ -425,7 +575,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
       receptorRenderer.flashReceptor(direction, judgment);
       judgmentTriggerRef.current?.(judgment, direction);
 
-      if (judgment === 'perfect') {
+      if (judgment === "perfect") {
         flashTriggerRef.current?.();
       }
     };
@@ -440,9 +590,9 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     // Game loop
     // -----------------------------------------------------------------------
 
-    const loopStart    = performance.now();
-    let lastFrameTime  = performance.now();
-    let lastBeatIndex  = -1;
+    const loopStart = performance.now();
+    let lastFrameTime = performance.now();
+    let lastBeatIndex = -1;
 
     // Countdown state (real game only).
     // Timing engine starts at -3s; each second corresponds to one phase.
@@ -450,13 +600,14 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     // revealing "3" as soon as the CountdownOverlay's useEffect has registered its fn.
     let countdownPhase: CountdownPhase = -1;
     let inputEnabled = !isRealGame; // demo mode: already enabled above
+    let audioPrewarmed = false;
 
     renderer.setAnimationLoop(() => {
       const now = performance.now();
-      const dt  = Math.min((now - lastFrameTime) / 1000, 0.05);
+      const dt = Math.min((now - lastFrameTime) / 1000, 0.05);
       lastFrameTime = now;
 
-      const songTime    = timingEngine.getCurrentTime();
+      const songTime = timingEngine.getCurrentTime();
       const realElapsed = (now - loopStart) / 1000;
 
       // -----------------------------------------------------------------------
@@ -466,13 +617,19 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
         if (!inputEnabled) {
           // Compute the phase from song time (-3 → 0 window)
           const newPhase: CountdownPhase =
-            songTime < -2 ? 3 :
-            songTime < -1 ? 2 :
-            songTime < 0  ? 1 : 0;
+            songTime < -2 ? 3 : songTime < -1 ? 2 : songTime < 0 ? 1 : 0;
 
           if (newPhase !== countdownPhase) {
             countdownPhase = newPhase;
             countdownUpdateRef.current?.(newPhase);
+          }
+
+          // Pre-warm AudioContext on the first countdown frame so the
+          // synchronous AudioContext + createMediaElementSource() work
+          // happens now, not at GO! where it would stall the animation loop.
+          if (!audioPrewarmed && audioPlayer) {
+            audioPrewarmed = true;
+            audioPlayer.prewarm();
           }
 
           // At GO (t >= 0): enable input and start audio / YouTube player
@@ -485,19 +642,31 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
             if (audioPlayer && !audioStarted) {
               audioStarted = true;
               audioPlayer.seek(0);
-              audioPlayer.play().then(() => {
-                if (audioPlayer) timingEngine.setAudioElement(audioPlayer.element);
-              }).catch((err: unknown) => {
-                console.warn('[AudioPlayer] play() at GO! failed (will retry on first key):', err);
-                audioStarted = false; // allow keypress fallback
-              });
+              audioPlayer
+                .play()
+                .then(() => {
+                  if (audioPlayer) {
+                    audioPlayer.fadeIn(AUDIO_FADE_IN_MS);
+                    timingEngine.setAudioElement(audioPlayer.element);
+                  }
+                })
+                .catch((err: unknown) => {
+                  console.warn(
+                    "[AudioPlayer] play() at GO! failed (will retry on first key):",
+                    err,
+                  );
+                  audioStarted = false; // allow keypress fallback
+                });
             }
 
             if (ytPlayer && !ytStarted && ytPlayer.isReady) {
               ytStarted = true;
-              // Seek to exact game start in case the countdown buffered differently
-              ytPlayer.seekTo(0);
+              // Don't re-seek here — the video was already seeked to segmentStart
+              // in YouTubePlayer.onReady and has been pre-buffering for ~3 seconds.
+              // A redundant seekTo resets YouTube's buffer and causes the spinner
+              // to reappear. Just call play() against the already-buffered position.
               ytPlayer.play();
+              ytPlayer.fadeIn(AUDIO_FADE_IN_MS);
               // Wire periodic resync: YouTubePlayer.getCurrentTime() returns
               // game-relative seconds (segmentStart already subtracted).
               timingEngine.setTimeSource(() => ytPlayer!.getCurrentTime());
@@ -519,7 +688,11 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
       }
 
       // Also end real game if we've run past the chart duration (safety net)
-      if (isRealGame && !gameEndedRef.current && songTime >= chartDuration + 0.5) {
+      if (
+        isRealGame &&
+        !gameEndedRef.current &&
+        songTime >= chartDuration + 0.5
+      ) {
         gameEndedRef.current = true;
         setTimeout(endGameSession, 500);
       }
@@ -528,10 +701,10 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
       const beatIndex = Math.floor(songTime / beatInterval);
       if (beatIndex !== lastBeatIndex) {
         lastBeatIndex = beatIndex;
-        background.pulseOnBeat();
+        background?.pulseOnBeat();
       }
 
-      background.update(dt, realElapsed);
+      background?.update(dt, realElapsed);
       scrollManager.update(songTime);
       arrowRenderer.update();
       receptorRenderer.update(realElapsed);
@@ -542,8 +715,11 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
 
       // HUD update (real game only)
       if (isRealGame && hudUpdateRef.current) {
-        const score    = useGameStore.getState().score;
-        const progress = chartDuration > 0 ? Math.min(songTime / chartDuration, 1) : 0;
+        const score = useGameStore.getState().score;
+        const progress =
+          chartDuration > 0
+            ? Math.max(0, Math.min(songTime / chartDuration, 1))
+            : 0;
         hudUpdateRef.current(score, progress);
       }
 
@@ -554,7 +730,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
         if (fpsFrameCount >= 60) {
           const elapsed = (performance.now() - fpsWindowStart) / 1000;
           const fps = elapsed > 0 ? fpsFrameCount / elapsed : 60;
-          fpsFrameCount  = 0;
+          fpsFrameCount = 0;
           fpsWindowStart = performance.now();
 
           if (fps < 30 && postProcessing.bloomEnabled) {
@@ -567,7 +743,14 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
         }
       }
 
-      postProcessing.render();
+      // YouTube games render directly to preserve canvas alpha transparency.
+      // PostProcessing (bloom pipeline) composites into an opaque intermediate
+      // framebuffer, which destroys the alpha channel and makes the canvas black.
+      if (isYouTubeGame) {
+        renderer.render(scene, camera);
+      } else {
+        postProcessing.render();
+      }
     });
 
     // -----------------------------------------------------------------------
@@ -578,15 +761,20 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
       inputHandler.dispose();
       audioPlayer?.dispose();
       ytPlayer?.dispose();
+      // Clear the YouTube container so React Strict Mode's double-mount doesn't
+      // leave a stale destroyed iframe that confuses the YouTube widgetapi.js.
+      if (ytContainerRef.current) {
+        ytContainerRef.current.innerHTML = "";
+      }
       timingEngine.dispose();
       scrollManager.dispose();
       arrowRenderer.dispose();
       receptorRenderer.dispose();
       hitEffects.dispose();
-      background.dispose();
+      background?.dispose();
       postProcessing.dispose();
       renderer.setAnimationLoop(null);
-      window.removeEventListener('resize', onResize);
+      window.removeEventListener("resize", onResize);
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
@@ -605,10 +793,12 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
       <div className="flex h-full w-full items-center justify-center bg-game-bg">
         <div className="max-w-md px-6 text-center">
           <div className="mb-4 text-5xl">⚠</div>
-          <h2 className="mb-3 text-2xl font-bold text-neon-cyan">WebGPU Not Supported</h2>
+          <h2 className="mb-3 text-2xl font-bold text-neon-cyan">
+            WebGPU Not Supported
+          </h2>
           <p className="text-game-text-dim">
-            This game requires WebGPU. Please use Chrome 113+, Edge 113+, or another browser with
-            WebGPU enabled.
+            This game requires WebGPU. Please use Chrome 113+, Edge 113+, or
+            another browser with WebGPU enabled.
           </p>
         </div>
       </div>
@@ -625,7 +815,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
           style={{
             opacity: 0.5,
             zIndex: 0,
-            pointerEvents: 'none',
+            pointerEvents: "none",
           }}
         />
       )}
@@ -639,6 +829,12 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
 
       {/* Post-processing CSS effects: vignette + Perfect screen flash */}
       <ScreenEffects onRegisterFlash={onRegisterFlash} />
+
+      {/* Combo-reactive video overlays — scanlines, tints, corner flares, etc.
+          Only shown for YouTube games where the video is the background. */}
+      {isYouTubeGame && (
+        <VideoComboEffects onRegisterUpdate={onRegisterVideoEffects} />
+      )}
 
       {/* Screen border glow + chromatic aberration */}
       <HypeOverlay
@@ -656,7 +852,10 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
       {isRealGame && <GameplayHUD onRegisterUpdate={onRegisterHUD} />}
 
       {/* 3-2-1-GO countdown overlay — only shown in real gameplay */}
-      <CountdownOverlay isActive={isRealGame} onRegisterUpdate={onRegisterCountdown} />
+      <CountdownOverlay
+        isActive={isRealGame}
+        onRegisterUpdate={onRegisterCountdown}
+      />
 
       {/* Touch input zones — only shown on touch devices */}
       {isMobile && (
@@ -666,6 +865,29 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
             inputHandlerCallbackRef.current?.(direction, timestamp);
           }}
         />
+      )}
+
+      {/* Buffering overlay — shown when YouTube player is not in PLAYING state */}
+      {ytBuffering && (
+        <div
+          className="absolute inset-0 flex items-center justify-center"
+          style={{ zIndex: 20, pointerEvents: "none" }}
+        >
+          <div
+            style={{
+              padding: "10px 22px",
+              background: "rgba(0,0,0,0.72)",
+              border: "1px solid rgba(204,68,255,0.5)",
+              color: "rgba(204,68,255,0.9)",
+              fontFamily: 'Impact, "Arial Black", sans-serif',
+              fontSize: "1rem",
+              letterSpacing: "0.2em",
+              textShadow: "0 0 12px rgba(204,68,255,0.7)",
+            }}
+          >
+            BUFFERING…
+          </div>
+        </div>
       )}
     </div>
   );

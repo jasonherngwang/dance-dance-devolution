@@ -14,29 +14,28 @@ export function getHypeLevel(combo: number): HypeLevel {
 }
 
 // ---------------------------------------------------------------------------
-// Per-level styling constants
+// Per-level styling — DDR-authentic color escalation
 // ---------------------------------------------------------------------------
 
 const HYPE_COLOR: Record<HypeLevel, string> = {
   0: '#ffffff',
-  1: '#ffcc00',  // golden at 10+
-  2: '#ff8800',  // orange at 25+
-  3: '#ff00ff',  // magenta at 50+
+  1: '#ffdd00',   // gold at 10+
+  2: '#ff8800',   // orange at 25+
+  3: '#ff44ff',   // magenta/pink at 50+
 };
 
 const HYPE_GLOW: Record<HypeLevel, string> = {
-  0: '0 0 8px #fff, 0 0 18px #fff',
-  1: '0 0 12px #ffcc00, 0 0 28px #ffcc00, 0 0 55px #ffaa00',
-  2: '0 0 16px #ff8800, 0 0 40px #ff8800, 0 0 80px #ff6600',
-  3: '0 0 20px #ff00ff, 0 0 50px #ff00ff, 0 0 100px #cc00ff, 0 0 160px #ff00ff',
+  0: '0 0 10px #fff, 1px 1px 0 #333',
+  1: '0 0 14px #ffdd00, 0 0 32px #ffaa00, 1px 1px 0 #664400',
+  2: '0 0 18px #ff8800, 0 0 44px #ff6600, 1px 1px 0 #662200',
+  3: '0 0 22px #ff44ff, 0 0 55px #cc00cc, 0 0 100px #ff00ff, 1px 1px 0 #550055',
 };
 
-// Font size in rem grows with hype level
 const HYPE_FONT_SIZE: Record<HypeLevel, string> = {
-  0: '2.5rem',
-  1: '2.9rem',
-  2: '3.3rem',
-  3: '3.8rem',
+  0: '2.4rem',
+  1: '2.7rem',
+  2: '3.0rem',
+  3: '3.6rem',
 };
 
 // ---------------------------------------------------------------------------
@@ -44,11 +43,6 @@ const HYPE_FONT_SIZE: Record<HypeLevel, string> = {
 // ---------------------------------------------------------------------------
 
 interface Props {
-  /**
-   * Called on mount with a trigger function the parent stores in a ref.
-   * The parent calls this with (combo, isBreak) whenever the combo changes.
-   * isBreak=true means a miss just happened (plays break animation, then hides).
-   */
   onRegisterUpdate: (fn: (combo: number, isBreak: boolean) => void) => void;
 }
 
@@ -56,22 +50,9 @@ interface Props {
 // ComboDisplay
 // ---------------------------------------------------------------------------
 
-/**
- * HTML overlay that renders the escalating combo counter.
- *
- * Hype levels:
- *   0  (0–9)   – hidden below 2, plain white at 2+
- *   1  (10–24) – golden glow + radial aura
- *   2  (25–49) – orange glow + stronger aura
- *   3  (50+)   – magenta full-hype + pulsing "HYPE!" label
- *
- * On combo break: red flash + shrink, then hides after 500ms.
- */
 export function ComboDisplay({ onRegisterUpdate }: Props) {
-  // displayCombo is kept at the pre-break value during the break animation
   const [displayCombo, setDisplayCombo] = useState(0);
   const [hypeLevel, setHypeLevel] = useState<HypeLevel>(0);
-  // Increment to force a CSS animation restart on each new combo hit
   const [pulseKey, setPulseKey] = useState(0);
   const [isBreaking, setIsBreaking] = useState(false);
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -79,8 +60,6 @@ export function ComboDisplay({ onRegisterUpdate }: Props) {
   useEffect(() => {
     onRegisterUpdate((newCombo: number, isBreak: boolean) => {
       if (isBreak) {
-        // Keep the current displayed value visible during the break animation,
-        // then hide after 500ms (by setting displayCombo to 0).
         setIsBreaking(true);
         const t = setTimeout(() => {
           setDisplayCombo(0);
@@ -92,7 +71,6 @@ export function ComboDisplay({ onRegisterUpdate }: Props) {
         setDisplayCombo(newCombo);
         setHypeLevel(getHypeLevel(newCombo));
         if (newCombo > 0) {
-          // Re-key the number element so its CSS animation replays
           setPulseKey(k => k + 1);
         }
       }
@@ -104,22 +82,19 @@ export function ComboDisplay({ onRegisterUpdate }: Props) {
     };
   }, [onRegisterUpdate]);
 
-  // Hide below 2 (but keep visible during break animation even if combo=0)
   if (displayCombo < 2 && !isBreaking) return null;
 
-  const color = isBreaking ? '#ff4444' : HYPE_COLOR[hypeLevel];
-  const glow  = isBreaking ? '0 0 15px #ff4444, 0 0 40px #ff4444' : HYPE_GLOW[hypeLevel];
+  const color    = isBreaking ? '#ff3333' : HYPE_COLOR[hypeLevel];
+  const glow     = isBreaking ? '0 0 16px #ff3333, 0 0 40px #ff0000, 1px 1px 0 #660000' : HYPE_GLOW[hypeLevel];
   const fontSize = HYPE_FONT_SIZE[isBreaking ? 0 : hypeLevel];
 
   return (
     <div className="pointer-events-none absolute inset-0">
-      {/* Centered combo block, positioned in lower-center area */}
       <div
         style={{
           position: 'absolute',
-          bottom: '28%',
-          left: '50%',
-          transform: 'translateX(-50%)',
+          left: '8%',
+          top: '35%',
           textAlign: 'center',
           display: 'flex',
           flexDirection: 'column',
@@ -132,30 +107,29 @@ export function ComboDisplay({ onRegisterUpdate }: Props) {
             className="combo-aura"
             style={{
               position: 'absolute',
-              inset: '-35px',
+              inset: '-40px',
               borderRadius: '50%',
-              background: `radial-gradient(ellipse at center, ${HYPE_COLOR[hypeLevel]}30 0%, transparent 70%)`,
+              background: `radial-gradient(ellipse at center, ${HYPE_COLOR[hypeLevel]}35 0%, transparent 70%)`,
               animationDuration:
-                hypeLevel >= 3 ? '0.35s' : hypeLevel >= 2 ? '0.55s' : '0.75s',
+                hypeLevel >= 3 ? '0.32s' : hypeLevel >= 2 ? '0.50s' : '0.72s',
             }}
           />
         )}
 
-        {/* Combo number — re-keyed on each hit so the pulse animation replays */}
+        {/* Combo number */}
         <div
           key={pulseKey}
           className={isBreaking ? 'combo-number combo-number--break' : 'combo-number combo-number--hit'}
           style={{
             fontSize,
-            fontWeight: 900,
+            fontWeight: 400,
             color,
             textShadow: glow,
             lineHeight: 1,
-            fontFamily: 'system-ui, -apple-system, sans-serif',
-            letterSpacing: '-0.02em',
+            fontFamily: "'Press Start 2P', 'Courier New', monospace",
+            letterSpacing: '0',
             position: 'relative',
             zIndex: 1,
-            transition: 'font-size 0.25s ease, color 0.3s ease',
           }}
         >
           {displayCombo}
@@ -164,16 +138,15 @@ export function ComboDisplay({ onRegisterUpdate }: Props) {
         {/* "COMBO" label */}
         <div
           style={{
-            fontSize: '0.62rem',
-            fontWeight: 700,
+            fontFamily: "'Bungee', 'Impact', sans-serif",
+            fontSize: '0.85rem',
             color,
-            letterSpacing: '0.38em',
-            opacity: isBreaking ? 0.35 : 0.85,
+            letterSpacing: '0.25em',
+            opacity: isBreaking ? 0.4 : 0.9,
             textShadow: `0 0 8px ${color}`,
-            marginTop: '3px',
+            marginTop: 4,
             position: 'relative',
             zIndex: 1,
-            transition: 'color 0.3s ease, opacity 0.3s ease',
           }}
         >
           COMBO
@@ -184,12 +157,12 @@ export function ComboDisplay({ onRegisterUpdate }: Props) {
           <div
             className="hype-text"
             style={{
-              fontSize: '0.8rem',
-              fontWeight: 900,
-              color: '#ff00ff',
-              letterSpacing: '0.28em',
-              textShadow: '0 0 15px #ff00ff, 0 0 35px #ff00ff, 0 0 65px #ff00ff',
-              marginTop: '5px',
+              fontFamily: "'Bungee', 'Impact', sans-serif",
+              fontSize: '0.95rem',
+              color: '#ff44ff',
+              letterSpacing: '0.24em',
+              textShadow: '0 0 16px #ff44ff, 0 0 38px #cc00cc, 0 0 70px #ff00ff',
+              marginTop: 6,
               position: 'relative',
               zIndex: 1,
             }}

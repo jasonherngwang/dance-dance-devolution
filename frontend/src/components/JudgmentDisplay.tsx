@@ -1,93 +1,65 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Direction, JudgmentType } from '@/types';
 
-// ---------------------------------------------------------------------------
-// Column X positions as approximate CSS left% for a 16:9 display.
-// World-space columns are at -1.5, -0.5, +0.5, +1.5 in a ±8.9 wide view.
-// ---------------------------------------------------------------------------
-
-const COLUMN_LEFT_PCT: Record<Direction, number> = {
-  left:  41,
-  down:  46,
-  up:    54,
-  right: 59,
-};
-
+// Classic DDR judgment labels
 const JUDGMENT_LABELS: Record<JudgmentType, string> = {
-  perfect: 'PERFECT!',
+  perfect: 'PERFECT!!',
   great:   'GREAT!',
   miss:    'MISS',
 };
 
+// Classic DDR judgment colors — saturated, bright
 const JUDGMENT_COLORS: Record<JudgmentType, string> = {
-  perfect: '#ffdd00',
-  great:   '#44ccff',
-  miss:    '#ff4444',
+  perfect: '#ffee00',
+  great:   '#88ff00',
+  miss:    '#ff3333',
 };
 
-// ---------------------------------------------------------------------------
-// Internal entry type
-// ---------------------------------------------------------------------------
+// Extra drop-shadow filter for PERFECT (orange fire glow below text)
+const JUDGMENT_FILTER: Record<JudgmentType, string | undefined> = {
+  perfect: 'drop-shadow(0 4px 8px #ff7700) drop-shadow(0 2px 4px #ff4400)',
+  great:   undefined,
+  miss:    undefined,
+};
 
 interface JudgmentEntry {
   id: number;
+  type: JudgmentType;
   text: string;
   color: string;
-  leftPct: number;
+  filter: string | undefined;
 }
 
 let _nextId = 0;
 
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
-
 interface Props {
-  /**
-   * Called once on mount with a trigger function the parent stores in a ref.
-   * The trigger is called from the Three.js animation loop to push new texts.
-   */
   onRegisterTrigger: (fn: (judgment: JudgmentType, direction: Direction) => void) => void;
 }
 
-// ---------------------------------------------------------------------------
-// JudgmentDisplay
-// ---------------------------------------------------------------------------
-
-/**
- * HTML overlay that renders animated judgment text (PERFECT!, GREAT!, MISS)
- * on top of the Three.js canvas.
- *
- * Text floats upward and fades over ~0.75s. Multiple texts can coexist.
- * Positioned approximately over the correct column.
- */
 export function JudgmentDisplay({ onRegisterTrigger }: Props) {
   const [entries, setEntries] = useState<JudgmentEntry[]>([]);
-  // Use a ref for the timeout IDs so we can clear on unmount
   const timeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
   useEffect(() => {
-    // Register the trigger function with the parent
-    onRegisterTrigger((judgment: JudgmentType, direction: Direction) => {
+    onRegisterTrigger((judgment: JudgmentType, _direction: Direction) => {
       const id = _nextId++;
       const entry: JudgmentEntry = {
         id,
-        text:    JUDGMENT_LABELS[judgment],
-        color:   JUDGMENT_COLORS[judgment],
-        leftPct: COLUMN_LEFT_PCT[direction],
+        type:   judgment,
+        text:   JUDGMENT_LABELS[judgment],
+        color:  JUDGMENT_COLORS[judgment],
+        filter: JUDGMENT_FILTER[judgment],
       };
       setEntries(prev => [...prev, entry]);
 
-      // Remove after animation completes (750ms animation + small buffer)
       const t = setTimeout(() => {
         setEntries(prev => prev.filter(e => e.id !== id));
         timeoutsRef.current.delete(t);
-      }, 900);
+      }, 950);
       timeoutsRef.current.add(t);
     });
 
     return () => {
-      // Cancel any pending removals on unmount
       for (const t of timeoutsRef.current) clearTimeout(t);
       timeoutsRef.current.clear();
     };
@@ -100,11 +72,12 @@ export function JudgmentDisplay({ onRegisterTrigger }: Props) {
           key={entry.id}
           className="judgment-text absolute"
           style={{
-            left:      `${entry.leftPct}%`,
-            top:       '22%', // slightly below receptor zone (~15% from top)
+            left:      '50%',
+            top:       '43%',
             transform: 'translateX(-50%)',
             color:     entry.color,
-          }}
+            filter:    entry.filter,
+          } as React.CSSProperties}
         >
           {entry.text}
         </div>

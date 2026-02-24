@@ -7,9 +7,9 @@ import type { HypeLevel } from './ComboDisplay';
 
 const BORDER_GLOW: Record<HypeLevel, string> = {
   0: 'none',
-  1: 'none', // level 1 uses only combo-counter effects, not border
-  2: 'inset 0 0 55px 12px rgba(255, 136, 0, 0.28), inset 0 0 25px 4px rgba(255, 136, 0, 0.18)',
-  3: 'inset 0 0 100px 25px rgba(255, 0, 255, 0.40), inset 0 0 50px 10px rgba(255, 0, 255, 0.28)',
+  1: 'none',
+  2: 'inset 0 0 55px 12px rgba(255, 102, 0, 0.30), inset 0 0 25px 4px rgba(255, 60, 0, 0.20)',
+  3: 'inset 0 0 100px 25px rgba(255, 0, 204, 0.45), inset 0 0 50px 10px rgba(255, 0, 102, 0.32)',
 };
 
 // ---------------------------------------------------------------------------

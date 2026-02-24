@@ -19,8 +19,8 @@ export const COLUMN_X: Record<Direction, number> = {
 // Breathing animation
 // ---------------------------------------------------------------------------
 const BREATH_FREQ = 1.2;   // Hz
-const BREATH_BASE = 0.30;  // minimum opacity
-const BREATH_AMP  = 0.18;  // swings 0.12 → 0.48
+const BREATH_BASE = 0.35;  // minimum opacity
+const BREATH_AMP  = 0.20;  // swings 0.15 → 0.55
 
 // ---------------------------------------------------------------------------
 // Flash durations (milliseconds)
@@ -45,19 +45,39 @@ const DIRECTION_ROTATION: Record<Direction, number> = {
 // ---------------------------------------------------------------------------
 
 /**
- * Seven-vertex arrow outline — same shape as ArrowRenderer, up-pointing.
- * Shared by all LineLoop instances (outlines + ripples).
+ * Filled arrow shape (same vertices as ArrowRenderer) — used for ghost receptors.
+ */
+function createArrowShape(): THREE.ShapeGeometry {
+  const shape = new THREE.Shape();
+  // Match ArrowRenderer proportions for visual consistency
+  const aw = 0.44, ah = 0.42, bw = 0.28, bh = 0.26, sy = 0.06;
+  shape.moveTo(  0,  ah);
+  shape.lineTo( aw,  sy);
+  shape.lineTo( bw,  sy);
+  shape.lineTo( bw, -bh);
+  shape.lineTo(-bw, -bh);
+  shape.lineTo(-bw,  sy);
+  shape.lineTo(-aw,  sy);
+  shape.closePath();
+  return new THREE.ShapeGeometry(shape);
+}
+
+/**
+ * Closed arrow outline for ripple effects.
+ * Uses THREE.Line (WebGPU-compatible) with the first point repeated at the
+ * end to close the loop — THREE.Line is not supported in the WebGPU renderer.
  */
 function createOutlineGeometry(): THREE.BufferGeometry {
-  const aw = 0.45, ah = 0.45, bw = 0.20, bh = 0.45;
+  const aw = 0.44, ah = 0.42, bw = 0.28, bh = 0.26, sy = 0.06;
   const pts = [
-    new THREE.Vector3( 0,  ah, 0),
-    new THREE.Vector3( aw,  0, 0),
-    new THREE.Vector3( bw,  0, 0),
+    new THREE.Vector3(  0,  ah, 0),
+    new THREE.Vector3( aw,  sy, 0),
+    new THREE.Vector3( bw,  sy, 0),
     new THREE.Vector3( bw, -bh, 0),
     new THREE.Vector3(-bw, -bh, 0),
-    new THREE.Vector3(-bw,  0, 0),
-    new THREE.Vector3(-aw,  0, 0),
+    new THREE.Vector3(-bw,  sy, 0),
+    new THREE.Vector3(-aw,  sy, 0),
+    new THREE.Vector3(  0,  ah, 0), // repeat first point to close the path
   ];
   return new THREE.BufferGeometry().setFromPoints(pts);
 }
@@ -73,7 +93,7 @@ interface FlashState {
 
 interface ActiveRipple {
   startTime: number;
-  line: THREE.LineLoop;
+  line: THREE.Line;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,32 +101,35 @@ interface ActiveRipple {
 // ---------------------------------------------------------------------------
 
 /**
- * Renders four static receptor outlines at the step zone (RECEPTOR_Y).
+ * Renders four static receptor arrows at the step zone (RECEPTOR_Y) as filled
+ * semi-transparent ghost arrows, plus a horizontal step-zone bar.
  *
  * API:
  *   const receptors = new ReceptorRenderer(scene);
- *   // call once per frame in the animation loop:
  *   receptors.update(performance.now() / 1000);
- *   // on player input / judgment:
  *   receptors.flashReceptor('left', 'perfect');
- *   // cleanup:
  *   receptors.dispose();
  */
 export class ReceptorRenderer {
   private readonly scene: THREE.Scene;
-  private readonly geometry: THREE.BufferGeometry;
+  private readonly arrowGeometry: THREE.ShapeGeometry;
+  private readonly outlineGeometry: THREE.BufferGeometry;
 
-  private readonly outlines = new Map<Direction, THREE.LineLoop>();
+  private readonly meshes = new Map<Direction, THREE.Mesh>();
   private readonly flashStates = new Map<Direction, FlashState>();
 
+
   // Pool of pre-allocated ripple LineLoops (Perfect hits only)
-  private readonly ripplePool: THREE.LineLoop[] = [];
+  private readonly ripplePool: THREE.Line[] = [];
   private readonly activeRipples: ActiveRipple[] = [];
   private static readonly RIPPLE_POOL_SIZE = 8;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
-    this.geometry = createOutlineGeometry();
+    this.arrowGeometry = createArrowShape();
+    this.outlineGeometry = createOutlineGeometry();
+
+    // Step-zone bar removed per design preference
 
     // Pre-allocate ripple pool
     for (let i = 0; i < ReceptorRenderer.RIPPLE_POOL_SIZE; i++) {
@@ -116,7 +139,7 @@ export class ReceptorRenderer {
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       });
-      const line = new THREE.LineLoop(this.geometry, mat);
+      const line = new THREE.Line(this.outlineGeometry, mat);
       line.visible = false;
       scene.add(line);
       this.ripplePool.push(line);
@@ -128,7 +151,7 @@ export class ReceptorRenderer {
   }
 
   private initReceptor(dir: Direction): void {
-    const mat = new THREE.LineBasicMaterial({
+    const mat = new THREE.MeshBasicMaterial({
       color: DIRECTION_COLORS[dir].clone(),
       transparent: true,
       blending: THREE.AdditiveBlending,
@@ -136,12 +159,12 @@ export class ReceptorRenderer {
     });
     mat.opacity = BREATH_BASE;
 
-    const line = new THREE.LineLoop(this.geometry, mat);
-    line.position.set(COLUMN_X[dir], RECEPTOR_Y, 0);
-    line.rotation.z = DIRECTION_ROTATION[dir];
+    const mesh = new THREE.Mesh(this.arrowGeometry, mat);
+    mesh.position.set(COLUMN_X[dir], RECEPTOR_Y, 0.05);
+    mesh.rotation.z = DIRECTION_ROTATION[dir];
 
-    this.scene.add(line);
-    this.outlines.set(dir, line);
+    this.scene.add(mesh);
+    this.meshes.set(dir, mesh);
   }
 
   // ---------------------------------------------------------------------------
@@ -149,11 +172,23 @@ export class ReceptorRenderer {
   // ---------------------------------------------------------------------------
 
   /**
-   * Trigger a visual response on a receptor.
-   * - perfect → bright white flash + expanding ripple
-   * - great   → bright color tint flash (no ripple)
-   * - miss    → no positive flash (handled elsewhere)
+   * Pre-warm the WebGPU render pipeline for ripple lines.
+   *
+   * Receptor arrow meshes are always visible so their pipelines compile on the
+   * first frame.  Ripple THREE.Line objects start visible=false and would stall
+   * the first Perfect judgment frame.  Call once after construction.
    */
+  prewarm(): void {
+    const ripple = this.ripplePool[0];
+    if (!ripple) return;
+    ripple.visible = true;
+    ripple.scale.setScalar(0.001);
+    setTimeout(() => {
+      ripple.visible = false;
+      ripple.scale.setScalar(1);
+    }, 100);
+  }
+
   flashReceptor(direction: Direction, judgment: JudgmentType): void {
     if (judgment === 'miss') return;
 
@@ -166,7 +201,7 @@ export class ReceptorRenderer {
       const ripple = this.ripplePool.find(r => !r.visible);
       if (ripple) {
         ripple.visible = true;
-        ripple.position.set(COLUMN_X[direction], RECEPTOR_Y, 0);
+        ripple.position.set(COLUMN_X[direction], RECEPTOR_Y, 0.1);
         ripple.rotation.z = DIRECTION_ROTATION[direction];
         ripple.scale.setScalar(1.0);
         const mat = ripple.material as THREE.LineBasicMaterial;
@@ -177,17 +212,13 @@ export class ReceptorRenderer {
     }
   }
 
-  /**
-   * Animate receptors. Call exactly once per frame before rendering.
-   * @param time - elapsed time in **seconds** (e.g. `performance.now() / 1000`)
-   */
   update(time: number): void {
     const now = performance.now();
     const breath = BREATH_BASE + BREATH_AMP * Math.sin(time * BREATH_FREQ * Math.PI * 2);
 
     for (const dir of DIRECTIONS) {
-      const line = this.outlines.get(dir)!;
-      const mat = line.material as THREE.LineBasicMaterial;
+      const mesh = this.meshes.get(dir)!;
+      const mat = mesh.material as THREE.MeshBasicMaterial;
       const flash = this.flashStates.get(dir);
 
       if (flash) {
@@ -199,26 +230,22 @@ export class ReceptorRenderer {
           mat.color.copy(DIRECTION_COLORS[dir]);
           mat.opacity = breath;
         } else {
-          // Quadratic ease-out: starts fast, settles gently
           const ease = 1 - t * t;
           const base = DIRECTION_COLORS[dir];
 
           if (flash.judgment === 'perfect') {
-            // Pure white flash — clearly distinct from Great
             mat.color.setRGB(1, 1, 1);
-            mat.opacity = BREATH_BASE + ease * 0.70;
+            mat.opacity = BREATH_BASE + ease * 0.65;
           } else {
-            // Great: color tinted toward white
             mat.color.setRGB(
               base.r + (1 - base.r) * ease * 0.55,
               base.g + (1 - base.g) * ease * 0.55,
               base.b + (1 - base.b) * ease * 0.55,
             );
-            mat.opacity = BREATH_BASE + ease * 0.48;
+            mat.opacity = BREATH_BASE + ease * 0.45;
           }
         }
       } else {
-        // Breathing glow
         mat.color.copy(DIRECTION_COLORS[dir]);
         mat.opacity = breath;
       }
@@ -233,7 +260,6 @@ export class ReceptorRenderer {
         ripple.line.visible = false;
         this.activeRipples.splice(i, 1);
       } else {
-        // Expand from 1× to 2.5×, fade out with ease-in
         ripple.line.scale.setScalar(1.0 + t * 1.5);
         (ripple.line.material as THREE.LineBasicMaterial).opacity = 0.85 * (1 - t * t);
       }
@@ -245,16 +271,18 @@ export class ReceptorRenderer {
   // ---------------------------------------------------------------------------
 
   dispose(): void {
-    this.geometry.dispose();
-    for (const [, line] of this.outlines) {
-      (line.material as THREE.Material).dispose();
-      this.scene.remove(line);
+    this.arrowGeometry.dispose();
+    this.outlineGeometry.dispose();
+
+    for (const [, mesh] of this.meshes) {
+      (mesh.material as THREE.Material).dispose();
+      this.scene.remove(mesh);
     }
     for (const ripple of this.ripplePool) {
       (ripple.material as THREE.Material).dispose();
       this.scene.remove(ripple);
     }
-    this.outlines.clear();
+    this.meshes.clear();
     this.activeRipples.length = 0;
   }
 }

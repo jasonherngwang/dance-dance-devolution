@@ -1,25 +1,47 @@
 @import "tailwindcss";
 
 @theme {
-  /* Neon color palette */
-  --color-neon-magenta: #ff00ff;
-  --color-neon-cyan: #00ffff;
-  --color-neon-green: #00ff88;
-  --color-neon-orange: #ff8800;
-  --color-neon-yellow: #ffff00;
-  --color-neon-blue: #0088ff;
-  --color-neon-pink: #ff0088;
-  --color-neon-purple: #8800ff;
+  /* DDR Extreme / early 2000s arcade palette */
+  --color-ddr-bg: #0a0014;
+  --color-ddr-surface: #120024;
+  --color-ddr-surface-alt: #1a0033;
+  --color-ddr-border: #4400aa;
 
-  /* UI colors */
-  --color-game-bg: #080810;
-  --color-game-surface: #0d0d1a;
-  --color-game-border: #1a1a33;
-  --color-game-text: rgba(255, 255, 255, 0.9);
-  --color-game-text-dim: rgba(255, 255, 255, 0.5);
+  --color-ddr-pink: #ff0066;
+  --color-ddr-cyan: #00eeff;
+  --color-ddr-lime: #66ff00;
+  --color-ddr-orange: #ff6600;
+  --color-ddr-gold: #ffd700;
+  --color-ddr-blue: #3366ff;
+  --color-ddr-magenta: #ff00cc;
+  --color-ddr-white: #f0e8ff;
 
-  /* Arcade fonts */
-  --font-arcade: 'Orbitron', system-ui, sans-serif;
+  --color-chrome-light: #e8e0f0;
+  --color-chrome-mid: #9988bb;
+  --color-chrome-dark: #443366;
+  --color-chrome-darkest: #221133;
+
+  /* Backward-compatible aliases */
+  --color-game-bg: #0a0014;
+  --color-game-surface: #120024;
+  --color-game-border: #4400aa;
+  --color-game-text: #f0e8ff;
+  --color-game-text-dim: rgba(240, 232, 255, 0.5);
+
+  /* Neon accent aliases (kept for any existing Tailwind usage) */
+  --color-neon-magenta: #ff00cc;
+  --color-neon-cyan: #00eeff;
+  --color-neon-green: #66ff00;
+  --color-neon-orange: #ff6600;
+  --color-neon-yellow: #ffd700;
+  --color-neon-blue: #3366ff;
+  --color-neon-pink: #ff0066;
+  --color-neon-purple: #cc44ff;
+
+  /* Font family tokens */
+  --font-arcade: 'Press Start 2P', 'Courier New', monospace;
+  --font-led: 'VT323', 'Courier New', monospace;
+  --font-display: 'Bungee', 'Impact', 'Arial Black', sans-serif;
 }
 
 /* Base reset and dark theme */
@@ -33,22 +55,44 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background-color: var(--color-game-bg);
-  color: var(--color-game-text);
-  font-family: 'Orbitron', system-ui, -apple-system, sans-serif;
+  background-color: var(--color-ddr-bg);
+  color: var(--color-ddr-white);
+  font-family: var(--font-display);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  /* Prevent touch callouts and selection during gameplay */
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
-  user-select: none;
+  /* Diamond matrix pattern — classic DDR Extreme menu background */
+  background-image:
+    repeating-linear-gradient(
+      45deg,
+      rgba(68, 0, 170, 0.08) 0px,
+      rgba(68, 0, 170, 0.08) 1px,
+      transparent 1px,
+      transparent 24px
+    ),
+    repeating-linear-gradient(
+      -45deg,
+      rgba(68, 0, 170, 0.08) 0px,
+      rgba(68, 0, 170, 0.08) 1px,
+      transparent 1px,
+      transparent 24px
+    ),
+    /* CRT scanlines */
+    repeating-linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0.06) 0px,
+      rgba(0, 0, 0, 0.06) 1px,
+      transparent 1px,
+      transparent 3px
+    );
 }
 
-/* Fallback body font for form elements and body copy (Orbitron for headings is global) */
+/* Fallback body font for form elements */
 input, textarea, select {
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: var(--font-led);
 }
 
 #root {
@@ -57,35 +101,156 @@ input, textarea, select {
 }
 
 /* ---------------------------------------------------------------------------
-   Judgment text float-up animation (Issue 12)
+   Chrome beveled frame — reusable panel border
+   --------------------------------------------------------------------------- */
+
+.chrome-frame {
+  border: 3px solid;
+  border-image: linear-gradient(
+    180deg,
+    var(--color-chrome-light) 0%,
+    var(--color-chrome-mid) 30%,
+    var(--color-chrome-dark) 70%,
+    var(--color-chrome-darkest) 100%
+  ) 1;
+  box-shadow:
+    0 0 20px rgba(68, 0, 170, 0.3),
+    inset 0 0 20px rgba(68, 0, 170, 0.1);
+}
+
+/* Inner dark bezel for panels inside chrome frames */
+.inner-bezel {
+  background: linear-gradient(180deg, #0a0014 0%, #120024 100%);
+  border: 2px solid;
+  border-image: linear-gradient(
+    180deg,
+    var(--color-chrome-darkest) 0%,
+    var(--color-chrome-dark) 50%,
+    var(--color-chrome-mid) 100%
+  ) 1;
+}
+
+/* Arcade button — beveled 3D look */
+.arcade-btn {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  padding: 10px 24px;
+  border: 3px solid;
+  position: relative;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: all 0.1s ease;
+  border-image: linear-gradient(
+    180deg,
+    rgba(255,255,255,0.4) 0%,
+    rgba(255,255,255,0.1) 50%,
+    rgba(0,0,0,0.3) 100%
+  ) 1;
+}
+
+.arcade-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.2);
+}
+
+.arcade-btn:active {
+  transform: translateY(1px);
+  filter: brightness(0.9);
+}
+
+/* Decorative sparkle star */
+.ddr-star {
+  display: inline-block;
+  animation: star-sparkle 2s ease-in-out infinite;
+}
+
+/* LED score display container */
+.led-display {
+  font-family: var(--font-led);
+  background: #000008;
+  border: 2px solid;
+  border-image: linear-gradient(
+    180deg,
+    var(--color-chrome-darkest),
+    var(--color-chrome-dark)
+  ) 1;
+  padding: 4px 12px;
+  box-shadow: inset 0 2px 8px rgba(0,0,0,0.9);
+}
+
+/* Rainbow gradient horizontal rule */
+.rainbow-rule {
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #ff0066, #ff6600, #ffd700, #66ff00, #00eeff, #ff0066, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+   Decorative keyframe animations
+   --------------------------------------------------------------------------- */
+
+@keyframes star-sparkle {
+  0%, 100% { opacity: 0.3; transform: scale(0.8) rotate(0deg); }
+  50%      { opacity: 1;   transform: scale(1.2) rotate(180deg); }
+}
+
+@keyframes chrome-shimmer {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px currentColor, 0 0 16px currentColor; }
+  50%      { box-shadow: 0 0 16px currentColor, 0 0 32px currentColor, 0 0 48px currentColor; }
+}
+
+@keyframes grade-stamp {
+  0%   { opacity: 0; transform: scale(3) rotate(-15deg); filter: blur(24px); }
+  40%  { opacity: 1; transform: scale(0.9) rotate(2deg); filter: blur(0); }
+  60%  { transform: scale(1.08) rotate(-1deg); }
+  80%  { transform: scale(0.98) rotate(0.5deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0deg); filter: blur(0); }
+}
+
+@keyframes starfield-scroll {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-50%); }
+}
+
+/* ---------------------------------------------------------------------------
+   Judgment text float-up animation
    --------------------------------------------------------------------------- */
 
 @keyframes judgment-float {
-  0%   { opacity: 0; transform: translateX(-50%) translateY(0)   scale(1.4); }
-  15%  { opacity: 1; transform: translateX(-50%) translateY(-8px) scale(1.0); }
-  60%  { opacity: 1; transform: translateX(-50%) translateY(-24px) scale(1.0); }
-  100% { opacity: 0; transform: translateX(-50%) translateY(-60px) scale(0.85); }
+  0%   { opacity: 0; transform: translateX(-50%) scale(1.45); }
+  12%  { opacity: 1; transform: translateX(-50%) scale(0.96); }
+  22%  { opacity: 1; transform: translateX(-50%) scale(1.0); }
+  68%  { opacity: 1; transform: translateX(-50%) translateY(-5px) scale(1.0); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-24px) scale(0.90); }
 }
 
 .judgment-text {
-  animation: judgment-float 0.75s ease-out forwards;
-  font-family: 'Orbitron', system-ui, sans-serif;
-  font-size: clamp(1rem, 2.5vw, 1.5rem);
-  font-weight: 900;
-  letter-spacing: 0.08em;
+  animation: judgment-float 0.92s ease-out forwards;
+  font-family: var(--font-display);
+  font-size: clamp(2.4rem, 5.5vw, 4rem);
+  font-weight: 400;
+  letter-spacing: 0.04em;
   text-shadow:
-    0 0 8px currentColor,
-    0 0 20px currentColor,
-    0 2px 4px rgba(0, 0, 0, 0.8);
+    0 0 18px currentColor,
+    0 0 45px currentColor,
+    2px 2px 0 rgba(0, 0, 0, 0.95),
+    -2px -2px 0 rgba(0, 0, 0, 0.95),
+    2px -2px 0 rgba(0, 0, 0, 0.95),
+    -2px 2px 0 rgba(0, 0, 0, 0.95),
+    0 6px 12px rgba(0, 0, 0, 0.5);
   white-space: nowrap;
   will-change: transform, opacity;
 }
 
 /* ---------------------------------------------------------------------------
-   Combo escalation and hype mode animations (Issue 13)
+   Combo escalation and hype mode animations
    --------------------------------------------------------------------------- */
 
-/* Combo number — springy pop on each new hit */
 @keyframes combo-number-hit {
   0%   { transform: scale(1.38); }
   55%  { transform: scale(0.94); }
@@ -96,7 +261,6 @@ input, textarea, select {
   animation: combo-number-hit 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
-/* Combo number — shrink + fade on miss */
 @keyframes combo-number-break {
   0%   { transform: scale(1.1); opacity: 1; }
   30%  { transform: scale(0.70); opacity: 0.75; }
@@ -108,7 +272,6 @@ input, textarea, select {
   animation: combo-number-break 0.50s ease-out forwards;
 }
 
-/* Radial aura that pulses behind the combo counter at 10+ combo */
 @keyframes combo-aura-pulse {
   from { transform: scale(0.88); opacity: 0.55; }
   to   { transform: scale(1.18); opacity: 1.0; }
@@ -119,7 +282,6 @@ input, textarea, select {
   will-change: transform, opacity;
 }
 
-/* "HYPE!" label pulsing at 50+ combo */
 @keyframes hype-text-pulse {
   from { transform: scale(0.93); opacity: 0.80; }
   to   { transform: scale(1.07); opacity: 1.0; }
@@ -130,7 +292,6 @@ input, textarea, select {
   will-change: transform, opacity;
 }
 
-/* Screen border pulse at hype level 3 (magenta) */
 @keyframes hype-border-3-pulse {
   from { opacity: 0.70; }
   to   { opacity: 1.0; }
@@ -141,10 +302,9 @@ input, textarea, select {
 }
 
 /* ---------------------------------------------------------------------------
-   3-2-1-GO countdown overlay (Issue 18)
+   3-2-1-GO countdown overlay
    --------------------------------------------------------------------------- */
 
-/* Number countdown: zoom in from large + blur, hold, then scale down + fade */
 @keyframes countdown-number-anim {
   0%   { transform: scale(2.5); opacity: 0; filter: blur(16px); }
   20%  { transform: scale(1.0); opacity: 1; filter: blur(0); }
@@ -152,7 +312,6 @@ input, textarea, select {
   100% { transform: scale(0.82); opacity: 0; filter: blur(6px); }
 }
 
-/* GO! animation: burst outward and fade */
 @keyframes countdown-go-anim {
   0%   { transform: scale(0.5); opacity: 0; }
   28%  { transform: scale(1.18); opacity: 1; }
@@ -173,7 +332,7 @@ input, textarea, select {
 }
 
 /* ---------------------------------------------------------------------------
-   Screen fade-in transition (Issue 19, polished in Issue 38)
+   Screen fade-in transition
    --------------------------------------------------------------------------- */
 
 @keyframes screen-fade-in {
@@ -186,7 +345,7 @@ input, textarea, select {
 }
 
 /* ---------------------------------------------------------------------------
-   Neon spinner (Issue 38)
+   Neon spinner
    --------------------------------------------------------------------------- */
 
 @keyframes neon-spin {
@@ -200,7 +359,7 @@ input, textarea, select {
   will-change: transform;
 }
 
-/* Chromatic aberration flash — red left edge + blue right edge, fades out */
+/* Chromatic aberration flash */
 @keyframes chromatic-aberration {
   0%   { opacity: 1; }
   65%  { opacity: 0.75; }
@@ -218,7 +377,7 @@ input, textarea, select {
 }
 
 /* ---------------------------------------------------------------------------
-   Loading screen progress shimmer (Issue 30)
+   Loading screen progress shimmer
    --------------------------------------------------------------------------- */
 
 @keyframes loading-shimmer {
@@ -228,16 +387,14 @@ input, textarea, select {
 }
 
 /* ---------------------------------------------------------------------------
-   Results screen animations (Issue 22)
+   Results screen animations
    --------------------------------------------------------------------------- */
 
-/* STAGE CLEAR header — slides down and fades in */
 @keyframes results-header-in {
   from { opacity: 0; transform: translateY(-22px) scale(0.92); filter: blur(6px); }
   to   { opacity: 1; transform: translateY(0)     scale(1);    filter: blur(0); }
 }
 
-/* Grade letter — dramatic spring reveal */
 @keyframes results-grade-reveal {
   0%   { opacity: 0; transform: scale(0.25) rotate(-12deg); filter: blur(18px); }
   70%  { transform: scale(1.06) rotate(2deg);  filter: blur(0); }
@@ -245,17 +402,145 @@ input, textarea, select {
   100% { opacity: 1; transform: scale(1)    rotate(0deg);   filter: blur(0); }
 }
 
-/* Stats panel + buttons — fade up from slightly below */
 @keyframes results-fade-up {
   from { opacity: 0; transform: translateY(16px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
 /* ---------------------------------------------------------------------------
-   Song-ready toast slide-in (Issue 32)
+   Song-ready toast slide-in
    --------------------------------------------------------------------------- */
 
 @keyframes song-ready-in {
   from { opacity: 0; transform: translateY(12px) scale(0.96); }
   to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+/* ---------------------------------------------------------------------------
+   Video Combo Effects (VideoComboEffects.tsx)
+   Combo-reactive overlays for YouTube video background games.
+   --------------------------------------------------------------------------- */
+
+/* --- Scanlines ------------------------------------------------------------ */
+
+.vce-scanlines {
+  position: absolute;
+  inset: 0;
+  /* 3px transparent + 1px dark = 4px period */
+  background: repeating-linear-gradient(
+    0deg,
+    transparent       0px,
+    transparent       3px,
+    rgba(0, 0, 0, 0.40) 3px,
+    rgba(0, 0, 0, 0.40) 4px
+  );
+  animation: vce-scanlines-scroll 2.0s linear infinite;
+  animation-play-state: paused;
+  will-change: background-position-y, opacity;
+}
+
+@keyframes vce-scanlines-scroll {
+  from { background-position-y: 0;   }
+  to   { background-position-y: 4px; }   /* one full period — seamless loop */
+}
+
+/* --- Color tint ----------------------------------------------------------- */
+
+.vce-tint {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Level 3: psychedelic hue-rotation on the base pink tint */
+.vce-tint--hyped {
+  animation: vce-hue-cycle 2.8s linear infinite;
+  will-change: filter;
+}
+
+@keyframes vce-hue-cycle {
+  from { filter: hue-rotate(0deg);   }
+  to   { filter: hue-rotate(360deg); }
+}
+
+/* --- Corner light flares -------------------------------------------------- */
+
+.vce-corner {
+  position: absolute;
+  width: 46%;
+  height: 46%;
+  pointer-events: none;
+  will-change: opacity;
+}
+
+/* Level 3: gentle pulse */
+.vce-corner--hyped {
+  animation: vce-corner-pulse 0.65s ease-in-out infinite alternate;
+}
+
+@keyframes vce-corner-pulse {
+  from { opacity: 0.70; }
+  to   { opacity: 1.00; }
+}
+
+/* --- Horizontal scan beam (level 3 only) ---------------------------------- */
+
+.vce-scan-beam {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 70px;
+  background: linear-gradient(
+    to bottom,
+    transparent                    0%,
+    rgba(255, 80,  255, 0.11)     20%,
+    rgba(200, 100, 255, 0.22)     50%,
+    rgba(255, 80,  255, 0.11)     80%,
+    transparent                  100%
+  );
+  animation: vce-scan-sweep 2.4s ease-in-out infinite;
+  will-change: top, opacity;
+}
+
+@keyframes vce-scan-sweep {
+  0%   { top: -70px; opacity: 0;   }
+  6%   {             opacity: 1;   }
+  92%  {             opacity: 1;   }
+  100% { top: 100%;  opacity: 0;   }
+}
+
+/* --- Center bloom (level 3 only) ----------------------------------------- */
+
+.vce-center-bloom {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 55% 55% at center,
+    rgba(255, 50, 255, 0.13) 0%,
+    rgba(180, 0,  255, 0.06) 40%,
+    transparent              70%
+  );
+  animation: vce-bloom-pulse 0.55s ease-in-out infinite alternate;
+  will-change: opacity;
+}
+
+@keyframes vce-bloom-pulse {
+  from { opacity: 0.50; }
+  to   { opacity: 1.00; }
+}
+
+/* --- Combo break flash ---------------------------------------------------- */
+
+.vce-break-flash {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 10, 10, 0.22);
+  animation: vce-break-flash-anim 0.45s ease-out forwards;
+  will-change: opacity;
+}
+
+@keyframes vce-break-flash-anim {
+  0%   { opacity: 1;   }
+  30%  { opacity: 0.8; }
+  100% { opacity: 0;   }
 }

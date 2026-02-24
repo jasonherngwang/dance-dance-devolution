@@ -9,27 +9,18 @@ import { useCallback, useEffect, useRef } from 'react';
 export type CountdownPhase = -1 | 0 | 1 | 2 | 3;
 
 interface CountdownOverlayProps {
-  /** GameCanvas calls this to register the imperative update function. */
   onRegisterUpdate: (fn: (phase: CountdownPhase) => void) => void;
-  /** Only rendered in real-game mode (not demo). */
   isActive: boolean;
 }
 
-// Per-phase colors (neon palette)
+// Per-phase colors (retro DDR palette)
 const PHASE_COLOR: Record<number, string> = {
-  3: '#00ffff',  // cyan
-  2: '#00ffff',  // cyan
-  1: '#ff8800',  // orange
-  0: '#00ff88',  // green  (GO!)
+  3: '#00eeff',  // cyan
+  2: '#00eeff',  // cyan
+  1: '#ff6600',  // orange
+  0: '#66ff00',  // lime green (GO!)
 };
 
-/**
- * Full-screen countdown overlay that renders "3 → 2 → 1 → GO!" before
- * gameplay begins.  All DOM mutations are performed imperatively so that
- * React does not need to re-render the entire GameCanvas tree on each phase
- * change.  The overlay is driven from the GameCanvas animation loop via the
- * `onRegisterUpdate` callback.
- */
 export function CountdownOverlay({ onRegisterUpdate, isActive }: CountdownOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
@@ -44,12 +35,10 @@ export function CountdownOverlay({ onRegisterUpdate, isActive }: CountdownOverla
     if (!container || !text) return;
 
     if (phase === -1) {
-      // Hide the overlay
       container.style.opacity = '0';
       return;
     }
 
-    // Show the overlay
     container.style.opacity = '1';
 
     const label = phase === 0 ? 'GO!' : String(phase);
@@ -61,15 +50,32 @@ export function CountdownOverlay({ onRegisterUpdate, isActive }: CountdownOverla
       `0 0 20px ${color}`,
       `0 0 50px ${color}`,
       `0 0 100px ${color}`,
-      `0 2px 6px rgba(0,0,0,0.9)`,
+      '0 2px 6px rgba(0,0,0,0.9)',
     ].join(', ');
 
-    // Swap CSS animation class to restart it (force reflow in between)
-    const animClass = phase === 0 ? 'countdown-go' : 'countdown-number';
-    text.className = '';
-    // Force layout so removing the class takes effect before we add it back
-    void text.offsetWidth;
-    text.className = animClass;
+    for (const anim of text.getAnimations()) anim.cancel();
+
+    if (phase === 0) {
+      text.animate(
+        [
+          { transform: 'scale(0.5)',  opacity: '0', offset: 0 },
+          { transform: 'scale(1.18)', opacity: '1', offset: 0.28 },
+          { transform: 'scale(1.0)',  opacity: '1', offset: 0.6 },
+          { transform: 'scale(1.35)', opacity: '0', offset: 1 },
+        ],
+        { duration: 600, easing: 'ease-out', fill: 'forwards' },
+      );
+    } else {
+      text.animate(
+        [
+          { transform: 'scale(2.5)',  opacity: '0', filter: 'blur(16px)', offset: 0 },
+          { transform: 'scale(1.0)',  opacity: '1', filter: 'blur(0px)',  offset: 0.2 },
+          { transform: 'scale(1.0)',  opacity: '1', filter: 'blur(0px)',  offset: 0.75 },
+          { transform: 'scale(0.82)', opacity: '0', filter: 'blur(6px)',  offset: 1 },
+        ],
+        { duration: 1000, easing: 'ease-out', fill: 'forwards' },
+      );
+    }
   }, []);
 
   useEffect(() => {
@@ -84,7 +90,6 @@ export function CountdownOverlay({ onRegisterUpdate, isActive }: CountdownOverla
       className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center"
       style={{ opacity: 0 }}
     >
-      {/* Subtle dark radial backdrop so the number pops over busy backgrounds */}
       <div
         className="absolute inset-0"
         style={{
@@ -93,13 +98,13 @@ export function CountdownOverlay({ onRegisterUpdate, isActive }: CountdownOverla
       />
       <span
         ref={textRef}
-        className="countdown-number"
         style={{
+          display: 'inline-block',
           position: 'relative',
-          fontSize: 'clamp(5rem, 18vw, 10rem)',
-          fontWeight: 900,
-          letterSpacing: '-0.02em',
-          fontFamily: 'system-ui, -apple-system, sans-serif',
+          fontFamily: "'Press Start 2P', 'Courier New', monospace",
+          fontSize: 'clamp(3rem, 12vw, 7rem)',
+          fontWeight: 400,
+          letterSpacing: '0.02em',
           lineHeight: 1,
           willChange: 'transform, opacity',
         }}

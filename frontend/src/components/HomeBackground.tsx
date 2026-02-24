@@ -252,6 +252,12 @@ export function HomeBackground() {
           p.vx += (Math.random() - 0.5) * 0.004;
           p.vy += (Math.random() - 0.5) * 0.004;
 
+          // Wrap around world edges based on current camera frustum
+          if (p.x > camera.right + 0.8) p.x = camera.left - 0.8;
+          else if (p.x < camera.left - 0.8) p.x = camera.right + 0.8;
+          if (p.y > camera.top + 0.8) p.y = camera.bottom - 0.8;
+          else if (p.y < camera.bottom - 0.8) p.y = camera.top + 0.8;
+
           // Speed clamp ONLY strictly applied
           const len = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
           if (len > p.maxSpeed) {

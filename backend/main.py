@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import analyze, catalog, chart, status
+from routers import analyze, chart, songs, status
 
 app = FastAPI(
     title="Dance Dance Devolution API",
@@ -28,7 +28,7 @@ app.add_middleware(
 app.include_router(analyze.router, prefix="/api")
 app.include_router(status.router, prefix="/api")
 app.include_router(chart.router, prefix="/api")
-app.include_router(catalog.router, prefix="/api")
+app.include_router(songs.router, prefix="/api")
 
 
 @app.get("/api/health")

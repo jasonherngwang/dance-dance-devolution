@@ -59,6 +59,7 @@ def _analyze_sync(audio_path: str) -> AudioAnalysis:
     )
     # librosa ≥0.10 may return a 1-element array for tempo
     bpm = float(np.atleast_1d(tempo_arr)[0])
+
     beat_times = librosa.frames_to_time(
         beat_frames, sr=sr, hop_length=hop_length
     ).tolist()

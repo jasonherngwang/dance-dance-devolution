@@ -3,11 +3,11 @@ Async job queue with a Semaphore(2) concurrency limit.
 Jobs are kept in memory; chart results are persisted in the SQLite cache.
 
 Pipeline:
-  extract audio (yt-dlp) [Issue 25]
-  → analyze audio (librosa) [Issue 26]
-  → select segment [Issue 27]
-  → generate chart [Issue 28]
-  → cache & mark complete [Issue 29]
+  extract audio (yt-dlp)
+  → analyze audio (librosa)
+  → select best segment
+  → generate chart
+  → cache & mark complete
 """
 
 import asyncio
@@ -30,8 +30,8 @@ job_store: Dict[str, JobStatus] = {}
 _semaphore = asyncio.Semaphore(2)
 
 
-async def _run_pipeline(job_id: str, url: str) -> None:
-    """Full processing pipeline — extraction implemented; remaining steps pending."""
+async def _run_pipeline(job_id: str, url: str, bpm_override: float | None = None) -> None:
+    """Full processing pipeline: extract → analyze → segment → generate → cache."""
     async with _semaphore:
         job = job_store.get(job_id)
         if job is None:
@@ -60,6 +60,8 @@ async def _run_pipeline(job_id: str, url: str) -> None:
             job.message = "Analysing audio with librosa…"
 
             analysis = await librosa_service.analyze(result.audio_path)
+            if bpm_override is not None:
+                analysis.bpm = bpm_override
             job.bpm = round(analysis.bpm)
             job.progress = 60
             job.message = f"Analysed audio — {analysis.bpm:.0f} BPM detected"
@@ -131,6 +133,6 @@ async def _run_pipeline(job_id: str, url: str) -> None:
                 ytdlp_service.cleanup_temp_dir(temp_dir)
 
 
-async def enqueue_job(job_id: str, url: str) -> None:
+async def enqueue_job(job_id: str, url: str, bpm_override: float | None = None) -> None:
     """Fire-and-forget: schedule the pipeline as a background task."""
-    asyncio.create_task(_run_pipeline(job_id, url))
+    asyncio.create_task(_run_pipeline(job_id, url, bpm_override=bpm_override))

@@ -29,4 +29,7 @@ class ChartData(BaseModel):
     # YouTube video ID (11 chars) — set for custom YouTube songs.
     # Empty string for pre-loaded local songs.
     video_id: str = ""
+    # Auto-computed difficulty tier (1–10), DDR "foot rating" style.
+    # Derived from BPM + onset density — not user-selectable.
+    difficulty_tier: int = 5
     charts: dict[Difficulty, Chart]

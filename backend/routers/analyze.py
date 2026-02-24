@@ -18,7 +18,7 @@ router = APIRouter()
 
 # Simple in-memory rate limiter: IP → list of request timestamps
 _rate_limit_store: dict[str, list[float]] = defaultdict(list)
-RATE_LIMIT = 5       # max requests
+RATE_LIMIT = 50      # max requests (raised for batch preprocessing; lower for production)
 RATE_WINDOW = 60.0   # per this many seconds
 
 
@@ -36,18 +36,11 @@ def _check_rate_limit(ip: str) -> bool:
 
 class AnalyzeRequest(BaseModel):
     url: str
+    bpm_override: float | None = None
 
 
 @router.post("/analyze")
 async def analyze(http_request: Request, request: AnalyzeRequest) -> dict:
-    # Rate limiting: 5 requests per minute per IP
-    client_ip = http_request.client.host if http_request.client else "unknown"
-    if not _check_rate_limit(client_ip):
-        raise HTTPException(
-            status_code=429,
-            detail="Too many requests. You can analyze up to 5 songs per minute. Please wait a moment before trying again.",
-        )
-
     url = request.url.strip()
     if not url:
         raise HTTPException(status_code=400, detail="URL is required")
@@ -58,7 +51,7 @@ async def analyze(http_request: Request, request: AnalyzeRequest) -> dict:
 
     job_id = str(uuid.uuid4())
 
-    # Check SQLite cache — skip re-processing if we already have this video
+    # Check SQLite cache first — cached videos skip rate limiting entirely
     video_id = get_video_id(url)
     if video_id and chart_cache.exists(video_id):
         cached = chart_cache.get(video_id)
@@ -75,6 +68,14 @@ async def analyze(http_request: Request, request: AnalyzeRequest) -> dict:
         job_store[job_id] = job
         return {"job_id": job_id}
 
+    # Rate limiting: 5 new analyses per minute per IP (cached hits are exempt)
+    client_ip = http_request.client.host if http_request.client else "unknown"
+    if not _check_rate_limit(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. You can analyze up to 5 songs per minute. Please wait a moment before trying again.",
+        )
+
     job = JobStatus(
         job_id=job_id,
         state=JobState.pending,
@@ -83,6 +84,6 @@ async def analyze(http_request: Request, request: AnalyzeRequest) -> dict:
     )
     job_store[job_id] = job
 
-    await enqueue_job(job_id, url)
+    await enqueue_job(job_id, url, bpm_override=request.bpm_override)
 
     return {"job_id": job_id}

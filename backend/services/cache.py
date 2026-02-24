@@ -68,6 +68,32 @@ class ChartCache:
         finally:
             conn.close()
 
+    def list_all(self, limit: int = 50) -> list[dict]:
+        """Return lightweight metadata for all cached charts, newest first."""
+        conn = _get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT video_id, chart_json, created_at FROM charts ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            result = []
+            for video_id, chart_json, created_at in rows:
+                try:
+                    data = json.loads(chart_json)
+                    result.append({
+                        "video_id": video_id,
+                        "title": data.get("title"),
+                        "artist": data.get("artist"),
+                        "bpm": data.get("bpm"),
+                        "difficulty_tier": data.get("difficulty_tier", 5),
+                        "created_at": created_at,
+                    })
+                except Exception:
+                    pass
+            return result
+        finally:
+            conn.close()
+
 
 # Module-level singleton
 chart_cache = ChartCache()

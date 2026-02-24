@@ -25,6 +25,12 @@ class ExtractionError(Exception):
     pass
 
 
+# Maximum video duration accepted for chart generation.
+# Long videos (podcasts, DJ sets) would consume excessive memory and CPU
+# without providing any gameplay benefit — the game only plays a 60–90s segment.
+MAX_SONG_DURATION_S = 600  # 10 minutes
+
+
 @dataclass
 class ExtractionResult:
     audio_path: Path  # WAV file at 22050 Hz mono
@@ -68,6 +74,17 @@ def _extract_audio_sync(url: str) -> ExtractionResult:
 
     try:
         output_template = str(temp_dir / "%(id)s.%(ext)s")
+
+        # ── Pre-flight: check duration before downloading anything ────────────
+        _QUIET_OPTS = {"quiet": True, "no_warnings": True}
+        with yt_dlp.YoutubeDL(_QUIET_OPTS) as ydl_meta:
+            meta = ydl_meta.extract_info(url, download=False)
+        raw_duration = float(meta.get("duration") or 0)
+        if raw_duration > MAX_SONG_DURATION_S:
+            mins = int(raw_duration // 60)
+            raise ExtractionError(
+                f"Video is too long ({mins} min). Please submit a song under 10 minutes."
+            )
 
         ydl_opts = {
             # Prefer audio-only streams; fall back to best if unavailable

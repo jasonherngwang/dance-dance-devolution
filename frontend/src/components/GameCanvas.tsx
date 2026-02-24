@@ -122,6 +122,11 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
   // Closure that starts YouTube playback — called from the tap overlay's gesture handler
   const mobileTapRef = useRef<(() => void) | null>(null);
 
+  // "PRESS START" gate — true until the player explicitly starts the round
+  const waitingForStartRef = useRef(false);
+  const [waitingForStart, setWaitingForStart] = useState(false);
+  const startGameCallbackRef = useRef<(() => void) | null>(null);
+
   // Shared input handler ref so TouchInputZones can use the same callback
   const inputHandlerCallbackRef = useRef<
     ((direction: Direction, timestamp: number) => void) | null
@@ -237,7 +242,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     // Reset store for a fresh game session
     if (isRealGame) {
       useGameStore.getState().resetGame();
-      useGameStore.getState().startCountdown();
+      // startCountdown() is called later, when the player presses start
     }
 
     // -----------------------------------------------------------------------
@@ -414,9 +419,49 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
         });
     }
 
-    // In real-game mode start the clock 3 seconds early so arrows are visibly
-    // approaching during the countdown; demo mode starts at 0 immediately.
-    timingEngine.play(isRealGame ? -3 : 0);
+    // In real-game mode: freeze the clock at −3 behind a "PRESS START" gate,
+    // then begin the countdown once the player acts.
+    // Exception: mobile YouTube games already have their own "TAP TO START"
+    // gesture gate after the countdown (browser autoplay requirement), so
+    // showing PRESS START there would require two taps — skip it.
+    // Demo mode starts running immediately.
+    // In real-game mode: freeze the clock at −3 behind a "PRESS START" gate,
+    // then begin the countdown once the player acts.
+    // Demo mode starts running immediately.
+    // True when the PRESS START tap was used to pre-authorize YouTube playback
+    // on mobile (play→pause within gesture context) so no second gate is needed.
+    let mobilePreAuthorized = false;
+
+    if (isRealGame && isMobile) {
+      // Mobile: freeze at −3 and show a PRESS START gate. The tap pre-authorizes
+      // YouTube playback on iOS Safari (play→pause within gesture context) so
+      // no second gate is needed after the countdown.
+      timingEngine.play(-3);
+      timingEngine.pause();
+
+      const doStart = () => {
+        if (!waitingForStartRef.current) return;
+        waitingForStartRef.current = false;
+        setWaitingForStart(false);
+        useGameStore.getState().startCountdown();
+
+        if (isYouTubeGame && ytPlayer && !ytStarted && ytPlayer.isReady) {
+          mobilePreAuthorized = true;
+          ytPlayer.play();
+          ytPlayer.pause();
+        }
+
+        timingEngine.resume();
+      };
+      startGameCallbackRef.current = doStart;
+
+      waitingForStartRef.current = true;
+      setWaitingForStart(true);
+    } else {
+      // Desktop or demo: start countdown immediately.
+      if (isRealGame) useGameStore.getState().startCountdown();
+      timingEngine.play(isRealGame ? -3 : 0);
+    }
 
     const postProcessing = new PostProcessingManager(renderer, scene, camera);
     // YouTube games use the video as the background — skip the animated rings
@@ -642,7 +687,9 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
       // Countdown management (real game only)
       // -----------------------------------------------------------------------
       if (isRealGame) {
-        if (!inputEnabled) {
+        if (waitingForStartRef.current) {
+          // Clock is frozen at −3; nothing to do until player presses start.
+        } else if (!inputEnabled) {
           // Compute the phase from song time (-3 → 0 window)
           const newPhase: CountdownPhase =
             songTime < -2 ? 3 : songTime < -1 ? 2 : songTime < 0 ? 1 : 0;
@@ -668,6 +715,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
           } else if (
             songTime >= 0 &&
             !mobileGestureRequested &&
+            !mobilePreAuthorized &&
             isMobile &&
             ytPlayer &&
             !ytStarted &&
@@ -720,10 +768,13 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
 
             if (ytPlayer && !ytStarted && ytPlayer.isReady) {
               ytStarted = true;
-              // Don't re-seek here — the video was already seeked to segmentStart
-              // in YouTubePlayer.onReady and has been pre-buffering for ~3 seconds.
-              // A redundant seekTo resets YouTube's buffer and causes the spinner
-              // to reappear. Just call play() against the already-buffered position.
+              if (mobilePreAuthorized) {
+                // play()+pause() during PRESS START may have moved the video
+                // slightly; seek back to game time 0 before resuming.
+                ytPlayer.seekTo(0);
+              }
+              // Otherwise: don't re-seek — the video has been buffering at
+              // segmentStart for ~3s and a redundant seekTo would clear the buffer.
               ytPlayer.play();
               ytPlayer.fadeIn(AUDIO_FADE_IN_MS);
               // Wire periodic resync: YouTubePlayer.getCurrentTime() returns
@@ -818,6 +869,9 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     // -----------------------------------------------------------------------
 
     return () => {
+      startGameCallbackRef.current = null;
+      waitingForStartRef.current = false;
+      setWaitingForStart(false);
       inputHandler.dispose();
       mobileTapRef.current = null;
       audioPlayer?.dispose();
@@ -977,6 +1031,47 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
               }}
             >
               GAME STARTS AFTER THE AD
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PRESS START gate — shown before the countdown begins */}
+      {waitingForStart && isRealGame && (
+        <div
+          className="absolute inset-0 flex items-center justify-center"
+          style={{ zIndex: 30 }}
+          onClick={() => startGameCallbackRef.current?.()}
+          onTouchStart={(e) => {
+            e.preventDefault();
+            startGameCallbackRef.current?.();
+          }}
+        >
+          <div
+            className="animate-pulse"
+            style={{
+              padding: "18px 36px",
+              background: "rgba(0,0,0,0.78)",
+              border: "1px solid rgba(0,238,255,0.6)",
+              borderRadius: "8px",
+              color: "rgba(0,238,255,0.95)",
+              fontFamily: 'Impact, "Arial Black", sans-serif',
+              fontSize: "1.4rem",
+              letterSpacing: "0.18em",
+              textShadow: "0 0 14px rgba(0,238,255,0.6)",
+              textAlign: "center",
+            }}
+          >
+            PRESS START
+            <div
+              style={{
+                fontSize: "0.65rem",
+                letterSpacing: "0.1em",
+                marginTop: "6px",
+                opacity: 0.7,
+              }}
+            >
+              ANY KEY OR TAP
             </div>
           </div>
         </div>

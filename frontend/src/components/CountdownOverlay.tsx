@@ -45,9 +45,9 @@ function playBeep(phase: number) {
     if (phase === 0) {
       // GO! - Higher pitch, longer sustain
       osc.frequency.setValueAtTime(880, sharedAudioCtx.currentTime);
-      gainNode.gain.setValueAtTime(0.15, sharedAudioCtx.currentTime);
+      gainNode.gain.setValueAtTime(0.07, sharedAudioCtx.currentTime);
       gainNode.gain.exponentialRampToValueAtTime(
-        0.01,
+        0.001,
         sharedAudioCtx.currentTime + 0.4,
       );
       osc.start();
@@ -55,9 +55,9 @@ function playBeep(phase: number) {
     } else if (phase > 0) {
       // 3, 2, 1 - Mid pitch, short blip
       osc.frequency.setValueAtTime(440, sharedAudioCtx.currentTime);
-      gainNode.gain.setValueAtTime(0.1, sharedAudioCtx.currentTime);
+      gainNode.gain.setValueAtTime(0.05, sharedAudioCtx.currentTime);
       gainNode.gain.exponentialRampToValueAtTime(
-        0.01,
+        0.001,
         sharedAudioCtx.currentTime + 0.15,
       );
       osc.start();

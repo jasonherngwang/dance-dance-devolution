@@ -1,159 +1,216 @@
-import { useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useGameStore } from '@/stores';
-import { useJobStore } from '@/stores/jobStore';
-import type { ChartData } from '@/types';
+import { useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import { useGameStore } from "@/stores";
+import { useJobStore } from "@/stores/jobStore";
+import type { ChartData } from "@/types";
 
+// DDR grade colors
 const GRADE_COLORS: Record<string, string> = {
-  S: '#ffff00',
-  A: '#00ffff',
-  B: '#00ff88',
-  C: '#ff8800',
-  D: '#ff4444',
+  S: "#ffd700",
+  A: "#ff6600",
+  B: "#66ff00",
+  C: "#3366ff",
+  D: "#ff0033",
 };
 
 export default function ResultsScreen() {
-  const navigate          = useNavigate();
-  const gameResult        = useGameStore(state => state.gameResult);
-  const activeSong        = useGameStore(state => state.activeSong);
-  const activeDifficulty  = useGameStore(state => state.activeDifficulty);
-  const setActiveSong     = useGameStore(state => state.setActiveSong);
-  const resetGame         = useGameStore(state => state.resetGame);
-  const completedJobs     = useJobStore(s => s.completedJobs);
-  const clearCompletedJob = useJobStore(s => s.clearCompletedJob);
+  const navigate = useNavigate();
+  const gameResult = useGameStore((state) => state.gameResult);
+  const activeSong = useGameStore((state) => state.activeSong);
+  const activeDifficulty = useGameStore((state) => state.activeDifficulty);
+  const setActiveSong = useGameStore((state) => state.setActiveSong);
+  const resetGame = useGameStore((state) => state.resetGame);
+  const completedJobs = useJobStore((s) => s.completedJobs);
+  const clearCompletedJob = useJobStore((s) => s.clearCompletedJob);
 
-  // Guard: redirect home if there's no result (e.g., direct URL access)
   useEffect(() => {
     if (!gameResult || !activeSong) {
-      navigate('/', { replace: true });
+      navigate("/", { replace: true });
     }
   }, [gameResult, activeSong, navigate]);
 
   if (!gameResult || !activeSong) return null;
 
-  const gradeColor = GRADE_COLORS[gameResult.grade] ?? '#ffffff';
+  const gradeColor = GRADE_COLORS[gameResult.grade] ?? "#ffffff";
 
   function handleRetry() {
     resetGame();
     setActiveSong(activeSong!, activeDifficulty);
-    navigate('/play');
+    navigate("/play");
   }
 
   function handleNewSong() {
-    navigate('/');
+    navigate("/");
   }
 
-  const handlePlayReadySong = useCallback(async (jobId: string, videoId: string) => {
-    clearCompletedJob(jobId);
-    try {
-      const res = await fetch(`/api/chart/${videoId}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const chart: ChartData = await res.json();
-      resetGame();
-      setActiveSong(chart, 'easy');
-      navigate('/play');
-    } catch (err) {
-      console.error('[ResultsScreen] Failed to load ready song:', err);
-    }
-  }, [clearCompletedJob, resetGame, setActiveSong, navigate]);
+  const handlePlayReadySong = useCallback(
+    async (jobId: string, videoId: string) => {
+      clearCompletedJob(jobId);
+      try {
+        const res = await fetch(`/api/chart/${videoId}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const chart: ChartData = await res.json();
+        resetGame();
+        setActiveSong(chart, "easy");
+        navigate("/play");
+      } catch (err) {
+        console.error("[ResultsScreen] Failed to load ready song:", err);
+      }
+    },
+    [clearCompletedJob, resetGame, setActiveSong, navigate],
+  );
 
-  // First completed job, if any (show banner on results screen)
-  const firstReadyEntry = completedJobs.size > 0 ? [...completedJobs.entries()][0] : null;
+  const firstReadyEntry =
+    completedJobs.size > 0 ? [...completedJobs.entries()][0] : null;
 
   return (
     <div
-      className="relative h-full w-full"
-      style={{ overflowY: 'auto', scrollbarWidth: 'none' } as React.CSSProperties}
+      className="relative h-full w-full overflow-hidden"
     >
-      {/* ── Neon grid background ──────────────────────────────────────────── */}
+      {/* Scrolling starfield background */}
       <div
         className="fixed inset-0 pointer-events-none"
         style={{
-          backgroundImage: `
-            linear-gradient(rgba(0,255,255,0.04) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(0,255,255,0.04) 1px, transparent 1px)
-          `,
-          backgroundSize: '52px 52px',
+          backgroundImage:
+            "radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,0.15) 1px, transparent 0), radial-gradient(1px 1px at 60% 70%, rgba(255,255,255,0.1) 1px, transparent 0), radial-gradient(1px 1px at 80% 20%, rgba(255,255,255,0.12) 1px, transparent 0), radial-gradient(1px 1px at 40% 80%, rgba(255,255,255,0.08) 1px, transparent 0)",
+          backgroundSize: "200px 200px, 300px 300px, 250px 250px, 180px 180px",
+          animation: "starfield-scroll 30s linear infinite",
         }}
       />
-      {/* Radial vignette */}
+      {/* CRT scanlines */}
       <div
         className="fixed inset-0 pointer-events-none"
         style={{
-          background:
-            'radial-gradient(ellipse 80% 70% at 50% 40%, transparent 0%, rgba(8,8,16,0.92) 100%)',
-        }}
-      />
-      {/* Grade-colored ambient glow — centers on the grade */}
-      <div
-        className="fixed inset-0 pointer-events-none"
-        style={{
-          background: `radial-gradient(ellipse 55% 45% at 50% 38%, ${gradeColor}0c 0%, transparent 70%)`,
-          transition: 'background 0.4s',
+          backgroundImage:
+            "repeating-linear-gradient(0deg, rgba(0,0,0,0.08) 0px, rgba(0,0,0,0.08) 1px, transparent 1px, transparent 3px)",
+          backgroundSize: "100% 3px",
         }}
       />
 
-      {/* ── Page content ──────────────────────────────────────────────────── */}
-      <div className="relative z-10 flex flex-col items-center px-4 pt-12 pb-28 min-h-full">
-
-        {/* STAGE CLEAR header */}
-        <h1
-          className="text-sm tracking-[0.5em] select-none"
+      {/* Page content — single viewport, no scroll */}
+      <div className="relative z-10 flex flex-col items-center justify-center px-4 py-4 h-full">
+        {/* "STAGE CLEAR" header */}
+        <div
           style={{
-            color: '#00ffff',
-            textShadow: '0 0 18px #00ffff, 0 0 50px rgba(0,255,255,0.38)',
-            animation: 'results-header-in 0.55s ease-out forwards',
+            animation: "results-header-in 0.55s ease-out forwards",
+            textAlign: "center",
           }}
         >
-          ★ &nbsp;STAGE CLEAR&nbsp; ★
-        </h1>
-
-        {/* Song title + artist + difficulty */}
-        <div
-          className="mt-4 text-center select-none"
-          style={{ animation: 'results-fade-up 0.5s 0.15s ease-out both' }}
-        >
           <div
-            className="text-xl font-black tracking-wide"
-            style={{ color: 'rgba(255,255,255,0.88)' }}
+            style={{
+              fontFamily: "'Press Start 2P', 'Courier New', monospace",
+              fontSize: "clamp(0.9rem, 2.5vw, 1.5rem)",
+              fontWeight: 400,
+              letterSpacing: "0.12em",
+              color: "#ffd700",
+              textShadow: "0 0 12px #ffd700, 0 0 30px rgba(255,215,0,0.4)",
+            }}
           >
-            {activeSong.title}
-          </div>
-          <div
-            className="mt-1 text-xs tracking-[0.22em]"
-            style={{ color: 'rgba(255,255,255,0.36)' }}
-          >
-            {activeSong.artist.toUpperCase()}
-            &nbsp;·&nbsp;
-            {activeDifficulty.toUpperCase()}
+            <span
+              className="ddr-star"
+              style={{
+                color: "#ffd700",
+                animationDelay: "0s",
+                textShadow: "0 0 8px #ffd700",
+              }}
+            >
+              &#9733;
+            </span>{" "}
+            STAGE CLEAR{" "}
+            <span
+              className="ddr-star"
+              style={{
+                color: "#ffd700",
+                animationDelay: "0.5s",
+                textShadow: "0 0 8px #ffd700",
+              }}
+            >
+              &#9733;
+            </span>
           </div>
         </div>
 
-        {/* ── Grade — dramatic animated reveal ─────────────────────────────── */}
+        {/* Rainbow divider */}
+        <div className="rainbow-rule w-3/5 max-w-xs mt-2 mb-2" />
+
+        {/* Song info — thumbnail + title */}
         <div
-          className="mt-8 relative flex items-center justify-center select-none"
-          style={{ animation: 'results-grade-reveal 0.65s 0.28s cubic-bezier(0.34,1.56,0.64,1) both' }}
+          className="mt-1 flex items-center gap-4 select-none"
+          style={{
+            animation: "results-fade-up 0.5s 0.15s ease-out both",
+            maxWidth: 420,
+            width: "100%",
+          }}
         >
-          {/* Soft glow disc behind grade letter */}
+          {activeSong.video_id && (
+            <img
+              src={`https://img.youtube.com/vi/${activeSong.video_id}/mqdefault.jpg`}
+              alt=""
+              style={{
+                width: 96,
+                height: 72,
+                objectFit: "cover",
+                borderRadius: 4,
+                flexShrink: 0,
+                border: "2px solid rgba(255,255,255,0.15)",
+                boxShadow: "0 0 16px rgba(0,238,255,0.2)",
+              }}
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = "none";
+              }}
+            />
+          )}
+          <div style={{ minWidth: 0 }}>
+            <div
+              style={
+                {
+                  fontFamily: "'Bungee', 'Impact', sans-serif",
+                  fontSize: "clamp(1.1rem, 3.2vw, 1.6rem)",
+                  color: "#f0e8ff",
+                  textShadow: "1px 1px 0 rgba(0,0,0,0.8)",
+                  lineHeight: 1.2,
+                  overflow: "hidden",
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                } as React.CSSProperties
+              }
+            >
+              {activeSong.title.toUpperCase()}
+            </div>
+            <div
+              style={{
+                marginTop: 5,
+                fontFamily: "'Press Start 2P', monospace",
+                fontSize: "0.55rem",
+                letterSpacing: "0.15em",
+                color: "rgba(0,238,255,0.6)",
+              }}
+            >
+              {activeSong.artist.toUpperCase()}
+            </div>
+          </div>
+        </div>
+
+        {/* Grade letter */}
+        <div
+          className="mt-3 flex items-center justify-center select-none"
+          style={{
+            animation:
+              "grade-stamp 0.7s 0.28s cubic-bezier(0.34,1.56,0.64,1) both",
+          }}
+        >
           <div
             style={{
-              position: 'absolute',
-              width: 160,
-              height: 160,
-              borderRadius: '50%',
-              background: `radial-gradient(circle, ${gradeColor}20 0%, transparent 70%)`,
-              pointerEvents: 'none',
-            }}
-          />
-          <div
-            className="font-black leading-none"
-            style={{
-              fontSize: 'clamp(7rem, 18vw, 9.5rem)',
+              fontFamily: "'Press Start 2P', 'Courier New', monospace",
+              fontSize: "clamp(4rem, 12vw, 6.5rem)",
+              fontWeight: 400,
+              lineHeight: 1,
               color: gradeColor,
               textShadow: `
-                0 0 24px ${gradeColor},
-                0 0 60px ${gradeColor}88,
-                0 0 110px ${gradeColor}44
+                0 0 30px ${gradeColor},
+                0 0 70px ${gradeColor}88,
+                4px 4px 0 rgba(0,0,0,0.9)
               `,
             }}
           >
@@ -161,117 +218,211 @@ export default function ResultsScreen() {
           </div>
         </div>
 
-        {/* ── Stats panel ──────────────────────────────────────────────────── */}
+        {/* Stats panel — chrome framed */}
         <div
-          className="mt-8 w-full max-w-xs"
+          className="mt-4 w-full max-w-sm chrome-frame"
           style={{
-            animation: 'results-fade-up 0.5s 0.55s ease-out both',
-            background: 'rgba(255,255,255,0.028)',
-            border: '1px solid rgba(255,255,255,0.08)',
+            animation: "results-fade-up 0.5s 0.55s ease-out both",
+            background: "#0a0014",
           }}
         >
-          <StatRow label="SCORE"     value={gameResult.score.toLocaleString()} color="#ffffff"   last={false} />
-          <StatRow label="PERFECT"   value={String(gameResult.perfect)}        color="#ffff00"   last={false} />
-          <StatRow label="GREAT"     value={String(gameResult.great)}          color="#00ffff"   last={false} />
-          <StatRow label="MISS"      value={String(gameResult.miss)}           color="#ff4444"   last={false} />
-          <StatRow label="MAX COMBO" value={String(gameResult.maxCombo)}       color="#ff8800"   last={false} />
-          <StatRow label="ACCURACY"  value={`${gameResult.accuracy.toFixed(1)}%`} color="#00ff88" last={true} />
-        </div>
-
-        {/* ── Song-ready notification banner ───────────────────────────────── */}
-        {firstReadyEntry && (() => {
-          const [jobId, info] = firstReadyEntry;
-          return (
-            <div
-              className="mt-8 w-full max-w-xs"
+          {/* Panel header */}
+          <div
+            style={{
+              textAlign: "center",
+              padding: "6px 0",
+              background: "#1a0033",
+              borderBottom: "2px solid #443366",
+            }}
+          >
+            <span
               style={{
-                animation: 'results-fade-up 0.5s 0.65s ease-out both',
-                background: 'rgba(0,255,136,0.05)',
-                border: '1px solid rgba(0,255,136,0.4)',
-                boxShadow: '0 0 20px rgba(0,255,136,0.1)',
+                fontFamily: "'Press Start 2P', monospace",
+                fontSize: "0.6rem",
+                letterSpacing: "0.2em",
+                color: "#00eeff",
+                textShadow: "0 0 8px rgba(0,238,255,0.5)",
               }}
             >
-              <div className="flex items-center gap-3 px-4 py-3">
-                <div style={{ fontSize: 20, color: '#00ff88', textShadow: '0 0 10px rgba(0,255,136,0.7)', flexShrink: 0 }}>
-                  ♪
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 9, letterSpacing: '0.2em', color: 'rgba(0,255,136,0.7)', fontWeight: 700, marginBottom: 2 }}>
-                    YOUR SONG IS READY
-                  </div>
-                  {info.title && (
-                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {info.title}
-                    </div>
-                  )}
-                </div>
-                <button
-                  style={{
-                    flexShrink: 0,
-                    padding: '6px 14px',
-                    background: 'rgba(0,255,136,0.14)',
-                    border: '1px solid rgba(0,255,136,0.55)',
-                    color: '#00ff88',
-                    fontSize: 10,
-                    fontWeight: 700,
-                    letterSpacing: '0.1em',
-                    cursor: 'pointer',
-                    textShadow: '0 0 8px rgba(0,255,136,0.6)',
-                  }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,255,136,0.26)'; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,255,136,0.14)'; }}
-                  onClick={() => handlePlayReadySong(jobId, info.videoId)}
-                >
-                  ▶ PLAY NOW
-                </button>
-              </div>
-            </div>
-          );
-        })()}
+              RESULTS
+            </span>
+          </div>
 
-        {/* ── Action buttons ───────────────────────────────────────────────── */}
-        <div
-          className="flex gap-4 mt-8"
-          style={{ animation: 'results-fade-up 0.5s 0.72s ease-out both' }}
-        >
-          <ActionButton label="↺  RETRY"    color="#ff8800" onClick={handleRetry}  />
-          <ActionButton label="⌂  NEW SONG" color="#00ffff" onClick={handleNewSong} />
+          <div className="inner-bezel">
+            <StatRow
+              label="SCORE"
+              value={String(Math.floor(gameResult.score)).padStart(9, "0")}
+              color="#ffd700"
+              isBig
+              last={false}
+            />
+            <StatRow
+              label="PERFECT"
+              value={String(gameResult.perfect)}
+              color="#ffd700"
+              last={false}
+            />
+            <StatRow
+              label="GREAT"
+              value={String(gameResult.great)}
+              color="#66ff00"
+              last={false}
+            />
+            <StatRow
+              label="MISS"
+              value={String(gameResult.miss)}
+              color="#ff0033"
+              last={false}
+            />
+            <StatRow
+              label="MAX COMBO"
+              value={String(gameResult.maxCombo)}
+              color="#ff00cc"
+              last={false}
+            />
+            <StatRow
+              label="ACCURACY"
+              value={`${gameResult.accuracy.toFixed(1)}%`}
+              color="#00eeff"
+              last={true}
+            />
+          </div>
         </div>
 
+        {/* Song-ready notification banner */}
+        {firstReadyEntry &&
+          (() => {
+            const [jobId, info] = firstReadyEntry;
+            return (
+              <div
+                className="mt-3 w-full max-w-sm chrome-frame"
+                style={{
+                  animation: "results-fade-up 0.5s 0.65s ease-out both",
+                  background: "#001a0a",
+                  borderColor: "#66ff00",
+                }}
+              >
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <div
+                    style={{
+                      fontSize: 20,
+                      color: "#66ff00",
+                      textShadow: "0 0 10px rgba(102,255,0,0.7)",
+                      flexShrink: 0,
+                    }}
+                  >
+                    &#9835;
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontFamily: "'Press Start 2P', monospace",
+                        fontSize: "0.35rem",
+                        letterSpacing: "0.15em",
+                        color: "#66ff00",
+                        marginBottom: 2,
+                      }}
+                    >
+                      YOUR SONG IS READY
+                    </div>
+                    {info.title && (
+                      <div
+                        style={{
+                          fontFamily: "'Bungee', sans-serif",
+                          fontSize: "0.7rem",
+                          color: "#f0e8ff",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {info.title}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    className="arcade-btn shrink-0"
+                    style={{
+                      padding: "6px 14px",
+                      background: "rgba(102,255,0,0.14)",
+                      color: "#66ff00",
+                      fontSize: "0.6rem",
+                      textShadow: "0 0 8px rgba(102,255,0,0.6)",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLElement).style.background =
+                        "rgba(102,255,0,0.26)";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLElement).style.background =
+                        "rgba(102,255,0,0.14)";
+                    }}
+                    onClick={() => handlePlayReadySong(jobId, info.videoId)}
+                  >
+                    PLAY NOW
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
+        {/* Action buttons */}
+        <div
+          className="flex gap-4 mt-4"
+          style={{ animation: "results-fade-up 0.5s 0.72s ease-out both" }}
+        >
+          <ArcadeButton label="RETRY" color="#ff6600" onClick={handleRetry} />
+          <ArcadeButton
+            label="NEW SONG"
+            color="#00eeff"
+            onClick={handleNewSong}
+          />
+        </div>
       </div>
     </div>
   );
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+// -- Sub-components -----------------------------------------------------------
 
 function StatRow({
   label,
   value,
   color,
+  isBig,
   last,
 }: {
   label: string;
   value: string;
   color: string;
+  isBig?: boolean;
   last: boolean;
 }) {
   return (
     <div
-      className="flex justify-between items-center px-5 py-2.5"
-      style={last ? undefined : { borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+      className="flex justify-between items-center px-5 py-1.5"
+      style={
+        last ? undefined : { borderBottom: "1px solid rgba(68,0,170,0.3)" }
+      }
     >
       <span
-        className="text-xs tracking-[0.22em] select-none"
-        style={{ color: 'rgba(255,255,255,0.36)' }}
+        style={{
+          fontFamily: "'Bungee', 'Impact', sans-serif",
+          fontSize: "0.75rem",
+          letterSpacing: "0.15em",
+          color: "rgba(0,238,255,0.55)",
+        }}
       >
         {label}
       </span>
       <span
-        className="font-mono font-bold text-sm"
         style={{
+          fontFamily: "'VT323', 'Courier New', monospace",
+          fontWeight: 400,
+          fontSize: isBig ? "2rem" : "1.65rem",
           color,
-          textShadow: color !== '#ffffff' ? `0 0 8px ${color}55` : undefined,
+          textShadow: `0 0 10px ${color}66`,
+          letterSpacing: "0.04em",
         }}
       >
         {value}
@@ -280,7 +431,7 @@ function StatRow({
   );
 }
 
-function ActionButton({
+function ArcadeButton({
   label,
   color,
   onClick,
@@ -291,25 +442,24 @@ function ActionButton({
 }) {
   return (
     <button
-      className="px-7 py-3 font-bold tracking-widest text-sm transition-all duration-150"
+      className="arcade-btn"
       style={{
-        border: `2px solid ${color}`,
+        padding: "12px 32px",
+        fontSize: "1rem",
         color,
-        background: `${color}0d`,
-        textShadow: `0 0 10px ${color}55`,
+        background: `${color}12`,
+        textShadow: `0 0 12px ${color}66`,
       }}
       onClick={onClick}
-      onMouseEnter={e => {
+      onMouseEnter={(e) => {
         const el = e.currentTarget as HTMLElement;
-        el.style.background = `${color}1e`;
-        el.style.boxShadow  = `0 0 22px ${color}33`;
-        el.style.transform  = 'scale(1.04)';
+        el.style.background = `${color}25`;
+        el.style.boxShadow = `0 0 28px ${color}44`;
       }}
-      onMouseLeave={e => {
+      onMouseLeave={(e) => {
         const el = e.currentTarget as HTMLElement;
-        el.style.background = `${color}0d`;
-        el.style.boxShadow  = '';
-        el.style.transform  = '';
+        el.style.background = `${color}12`;
+        el.style.boxShadow = "";
       }}
     >
       {label}

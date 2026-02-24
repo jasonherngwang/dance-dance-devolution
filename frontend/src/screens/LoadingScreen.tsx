@@ -1,14 +1,14 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { useJobStore } from '@/stores/jobStore';
-import { useGameStore } from '@/stores';
-import type { JobStatus, JobStatusType } from '@/types';
-import type { ChartData, CatalogEntry } from '@/types';
-import type { PendingJobInfo } from '@/stores/jobStore';
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { useJobStore } from "@/stores/jobStore";
+import { useGameStore } from "@/stores";
+import type { JobStatus, JobStatusType } from "@/types";
+import type { ChartData } from "@/types";
+import { saveRecentlyPlayed } from "@/utils/recentlyPlayed";
 
-// ── Pipeline step definitions ─────────────────────────────────────────────────
+// -- Pipeline step definitions ------------------------------------------------
 
-type StepKey = 'extract' | 'analyze' | 'generate' | 'complete';
+type StepKey = "extract" | "analyze" | "generate" | "complete";
 
 interface PipelineStep {
   key: StepKey;
@@ -20,42 +20,48 @@ interface PipelineStep {
 
 const STEPS: PipelineStep[] = [
   {
-    key: 'extract',
-    label: 'Extract Audio',
-    description: 'yt-dlp downloads the video and extracts audio as a WAV file at 22 kHz mono.',
-    activeStatuses: ['queued', 'extracting'],
-    doneStatuses: ['analyzing', 'generating', 'complete'],
+    key: "extract",
+    label: "Extract Audio",
+    description:
+      "yt-dlp downloads the video and extracts audio as a WAV file at 22 kHz mono.",
+    activeStatuses: ["queued", "extracting"],
+    doneStatuses: ["analyzing", "generating", "complete"],
   },
   {
-    key: 'analyze',
-    label: 'Analyze Audio',
-    description: 'librosa detects BPM via autocorrelation, locates beat frames, and measures onset energy.',
-    activeStatuses: ['analyzing'],
-    doneStatuses: ['generating', 'complete'],
+    key: "analyze",
+    label: "Analyze Audio",
+    description:
+      "librosa detects BPM via autocorrelation, locates beat frames, and measures onset energy.",
+    activeStatuses: ["analyzing"],
+    doneStatuses: ["generating", "complete"],
   },
   {
-    key: 'generate',
-    label: 'Generate Chart',
-    description: 'A sliding-window algorithm picks the best 90-second segment, then places notes on a 16th-note grid.',
-    activeStatuses: ['generating'],
-    doneStatuses: ['complete'],
+    key: "generate",
+    label: "Generate Chart",
+    description:
+      "A sliding-window algorithm picks the best 90-second segment, then places notes on a 16th-note grid.",
+    activeStatuses: ["generating"],
+    doneStatuses: ["complete"],
   },
   {
-    key: 'complete',
-    label: 'Ready',
-    description: 'Chart is cached in SQLite and delivered to the frontend.',
+    key: "complete",
+    label: "Ready",
+    description: "Chart is cached in SQLite and delivered to the frontend.",
     activeStatuses: [],
-    doneStatuses: ['complete'],
+    doneStatuses: ["complete"],
   },
 ];
 
-function getStepState(step: PipelineStep, status: JobStatusType): 'pending' | 'active' | 'done' {
-  if (step.doneStatuses.includes(status)) return 'done';
-  if (step.activeStatuses.includes(status)) return 'active';
-  return 'pending';
+function getStepState(
+  step: PipelineStep,
+  status: JobStatusType,
+): "pending" | "active" | "done" {
+  if (step.doneStatuses.includes(status)) return "done";
+  if (step.activeStatuses.includes(status)) return "active";
+  return "pending";
 }
 
-// ── Background (shared neon grid) ─────────────────────────────────────────────
+// -- Background ---------------------------------------------------------------
 
 function NeonBg() {
   return (
@@ -64,84 +70,65 @@ function NeonBg() {
         className="fixed inset-0 pointer-events-none"
         style={{
           backgroundImage: `
-            linear-gradient(rgba(0,255,255,0.055) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(0,255,255,0.055) 1px, transparent 1px)
+            repeating-linear-gradient(45deg, rgba(68,0,170,0.06) 0px, rgba(68,0,170,0.06) 1px, transparent 1px, transparent 24px),
+            repeating-linear-gradient(-45deg, rgba(68,0,170,0.06) 0px, rgba(68,0,170,0.06) 1px, transparent 1px, transparent 24px)
           `,
-          backgroundSize: '52px 52px',
         }}
       />
       <div
         className="fixed inset-0 pointer-events-none"
         style={{
-          background: `radial-gradient(ellipse 80% 70% at 50% 50%, transparent 0%, rgba(8,8,16,0.92) 100%)`,
+          background:
+            "radial-gradient(ellipse 80% 70% at 50% 50%, transparent 0%, rgba(10,0,20,0.92) 100%)",
         }}
       />
       <div
         className="fixed inset-0 pointer-events-none"
         style={{
-          backgroundImage: 'repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0px, rgba(255,255,255,0.018) 1px, transparent 1px, transparent 4px)',
-          backgroundSize: '100% 4px',
+          backgroundImage:
+            "repeating-linear-gradient(0deg, rgba(0,0,0,0.06) 0px, rgba(0,0,0,0.06) 1px, transparent 1px, transparent 3px)",
+          backgroundSize: "100% 3px",
         }}
       />
     </>
   );
 }
 
-// ── Main component ─────────────────────────────────────────────────────────────
+// -- Main component -----------------------------------------------------------
 
 export default function LoadingScreen() {
-  const navigate            = useNavigate();
-  const location            = useLocation();
-  const startPolling        = useJobStore(s => s.startPolling);
-  const stopPolling         = useJobStore(s => s.stopPolling);
-  const registerPendingJob  = useJobStore(s => s.registerPendingJob);
-  const setActiveSong       = useGameStore(s => s.setActiveSong);
-  const resetGame           = useGameStore(s => s.resetGame);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const startPolling = useJobStore((s) => s.startPolling);
+  const stopPolling = useJobStore((s) => s.stopPolling);
+  const setActiveSong = useGameStore((s) => s.setActiveSong);
+  const resetGame = useGameStore((s) => s.resetGame);
 
-  const ytUrl: string = (location.state as { ytUrl?: string } | null)?.ytUrl ?? '';
+  const ytUrl: string =
+    (location.state as { ytUrl?: string } | null)?.ytUrl ?? "";
 
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
-  const [error, setError]         = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [networkUnreachable, setNetworkUnreachable] = useState(false);
-  const [timedOut, setTimedOut]   = useState(false);
+  const [timedOut, setTimedOut] = useState(false);
   const [showBehind, setShowBehind] = useState(false);
-  const [featuredSong, setFeaturedSong] = useState<CatalogEntry | null>(null);
-  const [featuredChart, setFeaturedChart] = useState<ChartData | null>(null);
 
-  // We only want to navigate once when complete
-  const navigatedRef              = useRef(false);
-  const jobIdRef                  = useRef<string | null>(null);
-  // Set to true when user clicks "Play while you wait" so cleanup keeps polling alive
-  const isPlayingWhileWaitingRef  = useRef(false);
-  // Track last progress value + timestamp for timeout detection
-  const lastProgressRef           = useRef<{ value: number; time: number }>({ value: 0, time: Date.now() });
+  const navigatedRef = useRef(false);
+  const jobIdRef = useRef<string | null>(null);
+  const lastProgressRef = useRef<{ value: number; time: number }>({
+    value: 0,
+    time: Date.now(),
+  });
 
-  // Load featured song for "play while you wait"
-  useEffect(() => {
-    fetch('/data/catalog.json')
-      .then(r => r.json() as Promise<CatalogEntry[]>)
-      .then(entries => {
-        const featured = entries.find(e => e.featured) ?? entries[0];
-        if (!featured) return;
-        setFeaturedSong(featured);
-        return fetch(featured.chart_url)
-          .then(r => r.json() as Promise<ChartData>)
-          .then(chart => setFeaturedChart(chart));
-      })
-      .catch(() => {/* non-fatal */});
-  }, []);
-
-  // On mount: POST /api/analyze, then start polling
   useEffect(() => {
     if (!ytUrl) {
-      setError('No YouTube URL provided. Please go back and enter a URL.');
+      setError("No YouTube URL provided. Please go back and enter a URL.");
       return;
     }
 
     let cancelled = false;
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
-    // Timeout: if no completion after 3 minutes, show warning
     const ANALYSIS_TIMEOUT_MS = 3 * 60 * 1000;
     timeoutHandle = setTimeout(() => {
       if (!cancelled && !navigatedRef.current) {
@@ -149,18 +136,25 @@ export default function LoadingScreen() {
       }
     }, ANALYSIS_TIMEOUT_MS);
 
-    fetch('/api/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: ytUrl }),
     })
-      .then(async res => {
+      .then(async (res) => {
         if (res.status === 429) {
-          const body = await res.json().catch(() => ({ detail: 'Rate limit exceeded' }));
-          throw new Error(body.detail ?? 'Too many requests. Please wait a moment before trying again.');
+          const body = await res
+            .json()
+            .catch(() => ({ detail: "Rate limit exceeded" }));
+          throw new Error(
+            body.detail ??
+              "Too many requests. Please wait a moment before trying again.",
+          );
         }
         if (!res.ok) {
-          const body = await res.json().catch(() => ({ detail: 'Server error' }));
+          const body = await res
+            .json()
+            .catch(() => ({ detail: "Server error" }));
           throw new Error(body.detail ?? `HTTP ${res.status}`);
         }
         return res.json() as Promise<{ job_id: string }>;
@@ -171,48 +165,53 @@ export default function LoadingScreen() {
 
         startPolling(
           job_id,
-          // onUpdate
           (status) => {
             if (!cancelled) {
               setJobStatus(status);
               setNetworkUnreachable(false);
-              // Update last-progress tracker for timeout detection
               const p = status.progress ?? 0;
               if (p !== lastProgressRef.current.value) {
                 lastProgressRef.current = { value: p, time: Date.now() };
               }
             }
           },
-          // onComplete
           (status) => {
             if (cancelled || navigatedRef.current) return;
-            if (timeoutHandle) { clearTimeout(timeoutHandle); timeoutHandle = null; }
+            if (timeoutHandle) {
+              clearTimeout(timeoutHandle);
+              timeoutHandle = null;
+            }
             setTimedOut(false);
-            // Backend returns 'state'; fallback to 'status' for legacy compatibility
             const finalState = status.state ?? status.status;
-            if (finalState === 'error') {
-              setError(status.error ?? 'Analysis failed. Please try a different URL.');
+            if (finalState === "error") {
+              setError(
+                status.message ??
+                  "Analysis failed. Please try a different URL.",
+              );
               return;
             }
             if (!status.video_id) {
-              setError('Video ID missing from job status. Please try again.');
+              setError("Video ID missing from job status. Please try again.");
               return;
             }
-            // Fetch the chart using video_id (not job_id)
             fetchChartAndNavigate(status.video_id);
           },
-          // onNetworkError
           () => {
             if (!cancelled) setNetworkUnreachable(true);
           },
         );
       })
-      .catch(err => {
+      .catch((err) => {
         if (!cancelled) {
-          if (timeoutHandle) { clearTimeout(timeoutHandle); timeoutHandle = null; }
-          // Distinguish network errors from server errors
+          if (timeoutHandle) {
+            clearTimeout(timeoutHandle);
+            timeoutHandle = null;
+          }
           const message = String(err.message ?? err);
-          if (message === 'Failed to fetch' || message.includes('NetworkError')) {
+          if (
+            message === "Failed to fetch" ||
+            message.includes("NetworkError")
+          ) {
             setNetworkUnreachable(true);
           } else {
             setError(message);
@@ -223,13 +222,9 @@ export default function LoadingScreen() {
     return () => {
       cancelled = true;
       if (timeoutHandle) clearTimeout(timeoutHandle);
-      // Only stop polling if the user didn't opt to play while waiting.
-      // When playing while waiting, the jobStore keeps polling globally.
-      if (jobIdRef.current && !isPlayingWhileWaitingRef.current) {
-        stopPolling(jobIdRef.current);
-      }
+      if (jobIdRef.current) stopPolling(jobIdRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ytUrl]);
 
   const fetchChartAndNavigate = useCallback(
@@ -241,9 +236,15 @@ export default function LoadingScreen() {
         const res = await fetch(`/api/chart/${videoId}`);
         if (!res.ok) throw new Error(`Chart not found (${res.status})`);
         const chart: ChartData = await res.json();
+        saveRecentlyPlayed({
+          video_id: videoId,
+          title: chart.title ?? "Unknown",
+          artist: chart.artist ?? undefined,
+          bpm: chart.bpm ?? undefined,
+        });
         resetGame();
-        setActiveSong(chart, 'easy');
-        navigate('/play');
+        setActiveSong(chart, "easy");
+        navigate("/play");
       } catch (err) {
         navigatedRef.current = false;
         setError(`Failed to load chart: ${String((err as Error).message)}`);
@@ -252,131 +253,191 @@ export default function LoadingScreen() {
     [navigate, setActiveSong, resetGame],
   );
 
-  const handlePlayFeatured = useCallback((pendingTitle?: string) => {
-    if (!featuredSong || !featuredChart) return;
-    // Register the pending job for global tracking before navigating away
-    if (jobIdRef.current) {
-      const info: PendingJobInfo = { title: pendingTitle };
-      registerPendingJob(jobIdRef.current, info);
-      isPlayingWhileWaitingRef.current = true;
-    }
-    resetGame();
-    setActiveSong(featuredChart, 'easy');
-    navigate('/play');
-  }, [featuredSong, featuredChart, resetGame, setActiveSong, navigate, registerPendingJob]);
-
-  // Backend returns 'state'; fallback chain for robustness
-  const status = jobStatus?.state ?? jobStatus?.status ?? (error ? 'error' : 'queued');
-  const progress   = jobStatus?.progress ?? 0;
-  // Backend sends title/bpm at top level; legacy 'details' shape as fallback
-  const detectedTitle = jobStatus?.title ?? jobStatus?.details?.title;
-  const detectedBpm   = jobStatus?.bpm   ?? jobStatus?.details?.bpm;
+  const status = jobStatus?.state ?? (error ? "error" : "queued");
+  const progress = jobStatus?.progress ?? 0;
+  const detectedTitle = jobStatus?.title;
+  const detectedBpm = jobStatus?.bpm;
 
   const statusLabel: Record<string, string> = {
-    queued:     'Waiting in queue...',
-    extracting: 'Extracting audio...',
-    analyzing:  'Analyzing audio...',
-    generating: 'Generating chart...',
-    complete:   'Chart ready! Loading...',
-    error:      'Analysis failed',
+    queued: "Waiting in queue...",
+    extracting: "Extracting audio...",
+    analyzing: "Analyzing audio...",
+    generating: "Generating chart...",
+    complete: "Chart ready! Loading...",
+    error: "Analysis failed",
   };
 
   return (
     <div
       className="relative h-full w-full"
-      style={{ overflowY: 'auto', scrollbarWidth: 'none' } as React.CSSProperties}
+      style={
+        { overflowY: "auto", scrollbarWidth: "none" } as React.CSSProperties
+      }
     >
       <NeonBg />
 
       <div className="relative z-10 flex flex-col items-center px-4 pt-12 pb-24 min-h-full max-w-lg mx-auto">
-
-        {/* ── Header ──────────────────────────────────────────────────────── */}
+        {/* Header */}
         <button
-          className="self-start mb-8 text-xs tracking-widest transition-colors"
-          style={{ color: 'rgba(255,255,255,0.35)' }}
-          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#00ffff'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.35)'; }}
-          onClick={() => navigate('/')}
+          className="self-start mb-8 arcade-btn"
+          style={{
+            padding: "4px 12px",
+            fontSize: "0.6rem",
+            color: "rgba(240,232,255,0.4)",
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.color = "#00eeff";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.color =
+              "rgba(240,232,255,0.4)";
+          }}
+          onClick={() => navigate("/")}
         >
-          ← BACK
+          BACK
         </button>
 
         <h1
-          className="text-3xl font-black tracking-[0.15em] text-center"
-          style={{ color: '#ff8800', textShadow: '0 0 18px rgba(255,136,0,0.7)' }}
+          className="text-center"
+          style={{
+            fontFamily: "'Press Start 2P', monospace",
+            fontSize: "clamp(0.9rem, 3vw, 1.5rem)",
+            letterSpacing: "0.1em",
+            color: "#ff6600",
+            textShadow: "0 0 18px rgba(255,102,0,0.7)",
+          }}
         >
           ANALYZING
         </h1>
 
+        {/* Rainbow divider */}
+        <div className="rainbow-rule w-3/5 max-w-xs mt-3" />
+
         {/* URL display */}
         {ytUrl && (
           <p
-            className="mt-2 text-xs text-center max-w-full truncate px-4"
-            style={{ color: 'rgba(255,255,255,0.3)' }}
+            className="mt-3 text-center max-w-full truncate px-4"
+            style={{
+              fontFamily: "'VT323', monospace",
+              fontSize: "0.95rem",
+              color: "rgba(240,232,255,0.3)",
+            }}
             title={ytUrl}
           >
             {ytUrl}
           </p>
         )}
 
-        {/* ── Error state ───────────────────────────────────────────────── */}
+        {/* Error state */}
         {error && (
           <div
-            className="mt-8 w-full p-5 text-center"
-            style={{
-              border: '1px solid rgba(255,80,80,0.4)',
-              background: 'rgba(255,40,40,0.07)',
-            }}
+            className="mt-8 w-full p-5 text-center chrome-frame"
+            style={{ background: "rgba(255,0,51,0.06)" }}
           >
-            <p className="text-sm font-bold mb-1" style={{ color: '#ff5555' }}>
+            <p
+              style={{
+                fontFamily: "'Bungee', sans-serif",
+                fontSize: "0.8rem",
+                color: "#ff0033",
+                marginBottom: 4,
+              }}
+            >
               Analysis Failed
             </p>
-            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>
+            <p
+              style={{
+                fontFamily: "'VT323', monospace",
+                fontSize: "1rem",
+                color: "rgba(240,232,255,0.5)",
+              }}
+            >
               {error}
             </p>
             <button
-              className="mt-4 px-6 py-2 text-xs tracking-widest transition-colors"
-              style={{ border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.5)' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#00ffff'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,255,255,0.4)'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.5)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.15)'; }}
-              onClick={() => navigate('/')}
+              className="mt-4 arcade-btn"
+              style={{
+                padding: "8px 20px",
+                fontSize: "0.6rem",
+                color: "rgba(240,232,255,0.5)",
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLElement).style.color = "#00eeff";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLElement).style.color =
+                  "rgba(240,232,255,0.5)";
+              }}
+              onClick={() => navigate("/")}
             >
               TRY ANOTHER URL
             </button>
           </div>
         )}
 
-        {/* ── Network unreachable banner ─────────────────────────────────── */}
+        {/* Network unreachable banner */}
         {!error && networkUnreachable && (
           <div
-            className="mt-8 w-full p-5 text-center"
-            style={{
-              border: '1px solid rgba(255,136,0,0.4)',
-              background: 'rgba(255,136,0,0.06)',
-            }}
+            className="mt-8 w-full p-5 text-center chrome-frame"
+            style={{ background: "rgba(255,102,0,0.06)" }}
           >
-            <p className="text-sm font-bold mb-1" style={{ color: '#ff8800' }}>
+            <p
+              style={{
+                fontFamily: "'Bungee', sans-serif",
+                fontSize: "0.8rem",
+                color: "#ff6600",
+                marginBottom: 4,
+              }}
+            >
               Server Unavailable
             </p>
-            <p className="text-xs mb-4" style={{ color: 'rgba(255,255,255,0.5)' }}>
-              Cannot reach the server. Retrying automatically — check your connection or try again.
+            <p
+              className="mb-4"
+              style={{
+                fontFamily: "'VT323', monospace",
+                fontSize: "1rem",
+                color: "rgba(240,232,255,0.5)",
+              }}
+            >
+              Cannot reach the server. Retrying automatically.
             </p>
             <div className="flex justify-center gap-3">
               <button
-                className="px-5 py-2 text-xs tracking-widest transition-colors"
-                style={{ border: '1px solid rgba(255,136,0,0.4)', color: '#ff8800' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,136,0,0.1)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-                onClick={() => { setNetworkUnreachable(false); navigate('/loading', { state: { ytUrl } }); }}
+                className="arcade-btn"
+                style={{
+                  padding: "8px 20px",
+                  fontSize: "0.6rem",
+                  color: "#ff6600",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.background =
+                    "rgba(255,102,0,0.1)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.background =
+                    "transparent";
+                }}
+                onClick={() => {
+                  setNetworkUnreachable(false);
+                  navigate("/loading", { state: { ytUrl } });
+                }}
               >
                 RETRY
               </button>
               <button
-                className="px-5 py-2 text-xs tracking-widest transition-colors"
-                style={{ border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.45)' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#00ffff'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,255,255,0.4)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.45)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.15)'; }}
-                onClick={() => navigate('/')}
+                className="arcade-btn"
+                style={{
+                  padding: "8px 20px",
+                  fontSize: "0.6rem",
+                  color: "rgba(240,232,255,0.45)",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.color = "#00eeff";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.color =
+                    "rgba(240,232,255,0.45)";
+                }}
+                onClick={() => navigate("/")}
               >
                 GO BACK
               </button>
@@ -384,24 +445,39 @@ export default function LoadingScreen() {
           </div>
         )}
 
-        {/* ── Timeout warning (still polling, just slow) ─────────────────── */}
+        {/* Timeout warning */}
         {!error && !networkUnreachable && timedOut && (
           <div
-            className="mt-4 w-full px-4 py-3"
-            style={{
-              border: '1px solid rgba(255,136,0,0.3)',
-              background: 'rgba(255,136,0,0.05)',
-            }}
+            className="mt-4 w-full px-4 py-3 chrome-frame"
+            style={{ background: "rgba(255,102,0,0.05)" }}
           >
-            <p className="text-xs" style={{ color: '#ff8800' }}>
-              ⏳ Taking longer than expected. The server may be under load — analysis is still in progress.
+            <p
+              style={{
+                fontFamily: "'VT323', monospace",
+                fontSize: "1rem",
+                color: "#ff6600",
+              }}
+            >
+              Taking longer than expected. The server may be under load.
             </p>
             <button
-              className="mt-2 text-xs underline transition-colors"
-              style={{ color: 'rgba(255,255,255,0.4)' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#00ffff'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.4)'; }}
-              onClick={() => { setTimedOut(false); navigate('/loading', { state: { ytUrl } }); }}
+              className="mt-2 underline"
+              style={{
+                fontFamily: "'VT323', monospace",
+                fontSize: "1rem",
+                color: "rgba(240,232,255,0.4)",
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLElement).style.color = "#00eeff";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLElement).style.color =
+                  "rgba(240,232,255,0.4)";
+              }}
+              onClick={() => {
+                setTimedOut(false);
+                navigate("/loading", { state: { ytUrl } });
+              }}
             >
               Retry with a fresh request
             </button>
@@ -410,90 +486,119 @@ export default function LoadingScreen() {
 
         {!error && !networkUnreachable && (
           <>
-            {/* ── Progress bar ──────────────────────────────────────────── */}
+            {/* Progress bar */}
             <div className="mt-10 w-full">
               <div className="flex justify-between items-center mb-2">
                 <div className="flex items-center gap-2">
-                  {/* Neon spinner while processing */}
-                  {status !== 'complete' && status !== 'error' && (
+                  {status !== "complete" && status !== "error" && (
                     <div
                       className="neon-spinner"
                       style={{
-                        width: 12, height: 12,
+                        width: 12,
+                        height: 12,
                         borderWidth: 2,
-                        borderColor: 'rgba(255,136,0,0.2)',
-                        borderTopColor: '#ff8800',
+                        borderColor: "rgba(255,102,0,0.2)",
+                        borderTopColor: "#ff6600",
                       }}
                     />
                   )}
                   <span
-                    className="text-xs tracking-widest"
-                    style={{ color: '#ff8800', textShadow: '0 0 8px rgba(255,136,0,0.5)' }}
+                    style={{
+                      fontFamily: "'Bungee', sans-serif",
+                      fontSize: "0.65rem",
+                      letterSpacing: "0.1em",
+                      color: "#ff6600",
+                      textShadow: "0 0 8px rgba(255,102,0,0.5)",
+                    }}
                   >
-                    {statusLabel[status] ?? 'Processing...'}
+                    {statusLabel[status] ?? "Processing..."}
                   </span>
                 </div>
                 <span
-                  className="text-xs font-bold tabular-nums"
-                  style={{ color: 'rgba(255,255,255,0.45)' }}
+                  style={{
+                    fontFamily: "'VT323', monospace",
+                    fontSize: "1.3rem",
+                    color: "rgba(240,232,255,0.45)",
+                  }}
                 >
                   {progress}%
                 </span>
               </div>
               <div
-                className="w-full h-2 relative overflow-hidden"
-                style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.08)' }}
+                className="w-full h-2 relative overflow-hidden chrome-frame"
+                style={{
+                  background: "rgba(10,0,20,0.9)",
+                  padding: 0,
+                  borderWidth: 2,
+                }}
               >
                 <div
                   style={{
-                    position: 'absolute',
-                    left: 0, top: 0, bottom: 0,
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
                     width: `${progress}%`,
-                    background: progress === 100
-                      ? 'linear-gradient(90deg, #00ff88, #00ffcc)'
-                      : 'linear-gradient(90deg, #ff8800, #ffcc00)',
-                    boxShadow: progress === 100
-                      ? '0 0 12px rgba(0,255,136,0.6)'
-                      : '0 0 12px rgba(255,136,0,0.5)',
-                    transition: 'width 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
+                    background:
+                      progress === 100
+                        ? "linear-gradient(90deg, #66ff00, #00eeff)"
+                        : "linear-gradient(90deg, #ff6600, #ffd700)",
+                    boxShadow:
+                      progress === 100
+                        ? "0 0 12px rgba(102,255,0,0.6)"
+                        : "0 0 12px rgba(255,102,0,0.5)",
+                    transition: "width 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
                   }}
                 />
-                {/* Animated shimmer on the fill */}
                 {progress > 0 && progress < 100 && (
                   <div
                     style={{
-                      position: 'absolute',
+                      position: "absolute",
                       left: `${progress - 8}%`,
-                      top: 0, bottom: 0, width: '8%',
-                      background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)',
-                      animation: 'loading-shimmer 1.2s ease-in-out infinite',
+                      top: 0,
+                      bottom: 0,
+                      width: "8%",
+                      background:
+                        "linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)",
+                      animation: "loading-shimmer 1.2s ease-in-out infinite",
                     }}
                   />
                 )}
               </div>
             </div>
 
-            {/* ── Detected metadata ─────────────────────────────────────── */}
+            {/* Detected metadata */}
             {(detectedTitle || detectedBpm) && (
               <div
-                className="mt-4 w-full px-4 py-3 flex items-center gap-4"
-                style={{
-                  background: 'rgba(0,255,136,0.05)',
-                  border: '1px solid rgba(0,255,136,0.18)',
-                }}
+                className="mt-4 w-full px-4 py-3 flex items-center gap-4 chrome-frame"
+                style={{ background: "rgba(102,255,0,0.04)" }}
               >
-                <div className="text-lg" style={{ color: '#00ff88' }}>♪</div>
+                <div style={{ fontSize: "1.2rem", color: "#66ff00" }}>
+                  &#9835;
+                </div>
                 <div className="flex-1 min-w-0">
                   {detectedTitle && (
                     <div
-                      className="text-sm font-bold truncate"
-                      style={{ color: 'rgba(255,255,255,0.88)', textShadow: '0 0 8px rgba(0,255,136,0.3)' }}
+                      className="truncate"
+                      style={{
+                        fontFamily: "'Bungee', sans-serif",
+                        fontSize: "0.75rem",
+                        color: "rgba(240,232,255,0.88)",
+                        textShadow: "0 0 8px rgba(102,255,0,0.3)",
+                      }}
                     >
                       {detectedTitle}
                     </div>
                   )}
                   {detectedBpm && (
-                    <div className="text-xs mt-0.5" style={{ color: 'rgba(0,255,136,0.75)' }}>
+                    <div
+                      style={{
+                        fontFamily: "'VT323', monospace",
+                        fontSize: "1.1rem",
+                        color: "rgba(102,255,0,0.75)",
+                        marginTop: 2,
+                      }}
+                    >
                       {Math.round(detectedBpm)} BPM detected
                     </div>
                   )}
@@ -501,53 +606,73 @@ export default function LoadingScreen() {
               </div>
             )}
 
-            {/* ── Pipeline step indicators ──────────────────────────────── */}
+            {/* Pipeline step indicators */}
             <div className="mt-8 w-full space-y-2">
               {STEPS.map((step) => {
                 const state = getStepState(step, status as JobStatusType);
                 return (
                   <div key={step.key} className="flex items-center gap-3">
-                    {/* Icon */}
                     <div
                       style={{
-                        width: 22, height: 22,
-                        borderRadius: '50%',
+                        width: 22,
+                        height: 22,
+                        borderRadius: "50%",
                         flexShrink: 0,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 11, fontWeight: 900,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 11,
+                        fontFamily: "'Press Start 2P', monospace",
                         background:
-                          state === 'done'   ? 'rgba(0,255,136,0.18)' :
-                          state === 'active' ? 'rgba(255,136,0,0.18)' :
-                                              'rgba(255,255,255,0.04)',
+                          state === "done"
+                            ? "rgba(102,255,0,0.18)"
+                            : state === "active"
+                              ? "rgba(255,102,0,0.18)"
+                              : "rgba(255,255,255,0.04)",
                         border:
-                          state === 'done'   ? '1px solid rgba(0,255,136,0.5)' :
-                          state === 'active' ? '1px solid rgba(255,136,0,0.5)' :
-                                              '1px solid rgba(255,255,255,0.1)',
+                          state === "done"
+                            ? "1px solid rgba(102,255,0,0.5)"
+                            : state === "active"
+                              ? "1px solid rgba(255,102,0,0.5)"
+                              : "1px solid rgba(240,232,255,0.1)",
                         color:
-                          state === 'done'   ? '#00ff88' :
-                          state === 'active' ? '#ff8800' :
-                                              'rgba(255,255,255,0.2)',
+                          state === "done"
+                            ? "#66ff00"
+                            : state === "active"
+                              ? "#ff6600"
+                              : "rgba(240,232,255,0.2)",
                         boxShadow:
-                          state === 'active' ? '0 0 8px rgba(255,136,0,0.35)' : 'none',
+                          state === "active"
+                            ? "0 0 8px rgba(255,102,0,0.35)"
+                            : "none",
                       }}
                     >
-                      {state === 'done' ? '✓' : state === 'active' ? '●' : '○'}
+                      {state === "done"
+                        ? "\u2605"
+                        : state === "active"
+                          ? "\u25CF"
+                          : "\u25CB"}
                     </div>
 
-                    {/* Label */}
                     <span
-                      className="text-sm tracking-wide"
                       style={{
+                        fontFamily: "'Bungee', sans-serif",
+                        fontSize: "0.7rem",
+                        letterSpacing: "0.05em",
                         color:
-                          state === 'done'   ? 'rgba(0,255,136,0.8)' :
-                          state === 'active' ? '#ff8800' :
-                                              'rgba(255,255,255,0.22)',
-                        fontWeight: state === 'active' ? 700 : 400,
-                        textShadow: state === 'active' ? '0 0 8px rgba(255,136,0,0.5)' : 'none',
+                          state === "done"
+                            ? "rgba(102,255,0,0.8)"
+                            : state === "active"
+                              ? "#ff6600"
+                              : "rgba(240,232,255,0.22)",
+                        textShadow:
+                          state === "active"
+                            ? "0 0 8px rgba(255,102,0,0.5)"
+                            : "none",
                       }}
                     >
                       {step.label}
-                      {state === 'active' && (
+                      {state === "active" && (
                         <span style={{ opacity: 0.6 }}> — in progress</span>
                       )}
                     </span>
@@ -556,120 +681,79 @@ export default function LoadingScreen() {
               })}
             </div>
 
-            {/* ── Play while you wait ───────────────────────────────────── */}
-            {featuredSong && featuredChart && status !== 'complete' && (
-              <div
-                className="mt-10 w-full p-4"
-                style={{
-                  background: 'rgba(255,0,255,0.04)',
-                  border: '1px solid rgba(255,0,255,0.18)',
-                }}
-              >
-                <p
-                  className="text-xs tracking-[0.22em] mb-3 select-none"
-                  style={{ color: 'rgba(255,255,255,0.32)' }}
-                >
-                  PLAY WHILE YOU WAIT
-                </p>
-                <div className="flex items-center gap-3">
-                  <div
-                    className="shrink-0 text-2xl flex items-center justify-center"
-                    style={{
-                      width: 48, height: 48,
-                      background: 'rgba(255,0,255,0.1)',
-                      border: '1px solid rgba(255,0,255,0.25)',
-                      color: '#ff00ff',
-                    }}
-                  >
-                    ♪
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div
-                      className="text-sm font-bold truncate"
-                      style={{ color: '#ff00ff', textShadow: '0 0 8px rgba(255,0,255,0.5)' }}
-                    >
-                      {featuredSong.title}
-                    </div>
-                    <div className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                      {featuredSong.artist} · {featuredSong.bpm} BPM
-                    </div>
-                  </div>
-                  <button
-                    className="shrink-0 px-4 py-2 text-xs font-bold tracking-widest transition-all duration-150"
-                    style={{
-                      background: 'rgba(255,0,255,0.12)',
-                      border: '1px solid rgba(255,0,255,0.5)',
-                      color: '#ff00ff',
-                      textShadow: '0 0 8px rgba(255,0,255,0.6)',
-                    }}
-                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,0,255,0.22)'; }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,0,255,0.12)'; }}
-                    onClick={() => handlePlayFeatured(detectedTitle ?? undefined)}
-                  >
-                    ▶ PLAY
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* ── Behind the scenes ─────────────────────────────────────── */}
+            {/* Behind the scenes */}
             <div className="mt-6 w-full">
               <button
-                className="w-full flex items-center justify-between px-4 py-3 text-xs tracking-widest transition-colors"
+                className="w-full flex items-center justify-between px-4 py-3 arcade-btn"
                 style={{
-                  background: 'rgba(255,255,255,0.03)',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  color: 'rgba(255,255,255,0.35)',
+                  fontSize: "0.6rem",
+                  color: "rgba(240,232,255,0.35)",
+                  background: "rgba(255,255,255,0.03)",
                 }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.6)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.35)'; }}
-                onClick={() => setShowBehind(prev => !prev)}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.color =
+                    "rgba(240,232,255,0.6)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.color =
+                    "rgba(240,232,255,0.35)";
+                }}
+                onClick={() => setShowBehind((prev) => !prev)}
               >
                 <span>BEHIND THE SCENES</span>
-                <span style={{ fontSize: 10 }}>{showBehind ? '▲' : '▼'}</span>
+                <span style={{ fontSize: 10 }}>
+                  {showBehind ? "\u25B2" : "\u25BC"}
+                </span>
               </button>
               {showBehind && (
                 <div
-                  className="px-4 py-4 space-y-4"
-                  style={{
-                    background: 'rgba(255,255,255,0.02)',
-                    border: '1px solid rgba(255,255,255,0.06)',
-                    borderTop: 'none',
-                  }}
+                  className="px-4 py-4 space-y-4 inner-bezel"
+                  style={{ borderTop: "none" }}
                 >
                   {STEPS.map((step) => (
                     <div key={step.key}>
                       <div
-                        className="text-xs font-bold tracking-wide mb-1"
-                        style={{ color: 'rgba(255,136,0,0.8)' }}
+                        style={{
+                          fontFamily: "'Bungee', sans-serif",
+                          fontSize: "0.6rem",
+                          letterSpacing: "0.08em",
+                          color: "rgba(255,102,0,0.8)",
+                          marginBottom: 4,
+                        }}
                       >
                         {step.label}
                       </div>
                       <div
-                        className="text-xs leading-relaxed"
-                        style={{ color: 'rgba(255,255,255,0.42)' }}
+                        style={{
+                          fontFamily: "'VT323', monospace",
+                          fontSize: "1rem",
+                          lineHeight: 1.4,
+                          color: "rgba(240,232,255,0.42)",
+                        }}
                       >
                         {step.description}
                       </div>
                     </div>
                   ))}
                   <div
-                    className="text-xs leading-relaxed pt-2"
                     style={{
-                      color: 'rgba(255,255,255,0.28)',
-                      borderTop: '1px solid rgba(255,255,255,0.06)',
+                      fontFamily: "'VT323', monospace",
+                      fontSize: "1rem",
+                      lineHeight: 1.4,
+                      color: "rgba(240,232,255,0.28)",
+                      paddingTop: 8,
+                      borderTop: "1px solid rgba(68,0,170,0.2)",
                     }}
                   >
-                    Results are cached in SQLite — re-analyzing the same video is instant.
-                    WebGPU renders the game at up to 120 fps using instanced meshes for
-                    zero-allocation arrow rendering.
+                    Results are cached in SQLite — re-analyzing the same video
+                    is instant. WebGPU renders the game at up to 120 fps using
+                    instanced meshes for zero-allocation arrow rendering.
                   </div>
                 </div>
               )}
             </div>
           </>
         )}
-
       </div>
     </div>
   );

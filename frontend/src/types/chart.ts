@@ -24,6 +24,8 @@ export interface ChartData {
   source: 'local' | 'youtube';  // Audio source type
   /** Path to local audio file (e.g. "/audio/sandstorm.mp3"). Required when source === 'local'. */
   audio_url?: string;
+  /** Auto-computed difficulty tier (1–10), DDR "foot rating" style. */
+  difficulty_tier?: number;
   charts: {
     easy: Chart;
     hard: Chart;

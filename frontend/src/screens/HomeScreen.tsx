@@ -1,342 +1,389 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useGameStore } from '@/stores';
-import { AudioOffsetPanel } from '@/components/AudioOffsetPanel';
+import { useState, useEffect, useCallback, lazy, Suspense } from "react";
+import { useNavigate } from "react-router-dom";
+import { useGameStore } from "@/stores";
+import { AudioOffsetPanel } from "@/components/AudioOffsetPanel";
+import { getRecentlyPlayed } from "@/utils/recentlyPlayed";
+import { PREMADE_VIDEO_IDS } from "@/data/premadeSongs";
 
-// Lazy-load HomeBackground so the Three.js/WebGPU bundle is NOT included in the
-// initial HomeScreen chunk.  The static CSS grid renders immediately; the 3D
-// canvas loads after the first paint without blocking the UI.
 const HomeBackground = lazy(() =>
-  import('@/components/HomeBackground').then(m => ({ default: m.HomeBackground }))
+  import("@/components/HomeBackground").then((m) => ({
+    default: m.HomeBackground,
+  })),
 );
-import type { CatalogEntry } from '@/types/catalog';
-import type { ChartData, Difficulty } from '@/types';
+import type { ChartData } from "@/types";
 
-// Color accent per song id for theming
-const SONG_COLORS: Record<string, string> = {
-  'sandstorm': '#ff00ff',
-  'butterfly': '#00ffff',
-  'blinding-lights': '#ff8800',
-};
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface SongEntry {
+  video_id: string;
+  title: string;
+  artist?: string;
+  bpm?: number;
+  difficulty_tier?: number; // 1–10 DDR-style foot rating
+  playedAt: number | null; // null = never played
+  isPremade: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// HomeScreen
+// ---------------------------------------------------------------------------
 
 export default function HomeScreen() {
-  const navigate      = useNavigate();
-  const setActiveSong = useGameStore(state => state.setActiveSong);
-  const resetGame     = useGameStore(state => state.resetGame);
+  const navigate = useNavigate();
+  const setActiveSong = useGameStore((state) => state.setActiveSong);
+  const resetGame = useGameStore((state) => state.resetGame);
 
-  const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
-  // Cache: chart_url → ChartData
-  const [charts, setCharts] = useState<Record<string, ChartData>>({});
-  const [ytUrl, setYtUrl] = useState('');
-  const [ytUrlError, setYtUrlError] = useState('');
+  const [songs, setSongs] = useState<SongEntry[]>([]);
+  const [ytUrl, setYtUrl] = useState("");
+  const [ytUrlError, setYtUrlError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [loadingSong, setLoadingSong] = useState<string | null>(null);
 
-  // Load catalog on mount, then pre-fetch each song's chart
+  // Fetch all songs from API + merge with localStorage play history
   useEffect(() => {
-    fetch('/data/catalog.json')
-      .then(r => r.json() as Promise<CatalogEntry[]>)
-      .then(entries => {
-        setCatalog(entries);
-        // Pre-fetch every chart so buttons are ready quickly
-        entries.forEach(entry => {
-          fetch(entry.chart_url)
-            .then(r => r.json() as Promise<ChartData>)
-            .then(chart => setCharts(prev => ({ ...prev, [entry.chart_url]: chart })))
-            .catch(() => {/* non-fatal */});
-        });
+    const playHistory = getRecentlyPlayed();
+    const playMap = new Map(playHistory.map((e) => [e.video_id, e]));
+
+    fetch("/api/songs")
+      .then(
+        (r) =>
+          r.json() as Promise<
+            Array<{
+              video_id: string;
+              title?: string;
+              artist?: string;
+              bpm?: number;
+              difficulty_tier?: number;
+            }>
+          >,
+      )
+      .then((apiSongs) => {
+        const apiIds = new Set<string>();
+        const merged: SongEntry[] = [];
+
+        // Add all API songs (premade + user-analyzed that are cached)
+        for (const s of apiSongs) {
+          if (!s.video_id || !s.title) continue;
+          apiIds.add(s.video_id);
+          const played = playMap.get(s.video_id);
+          merged.push({
+            video_id: s.video_id,
+            title: s.title,
+            artist: played?.artist ?? s.artist,
+            bpm: played?.bpm ?? s.bpm,
+            difficulty_tier: s.difficulty_tier,
+            playedAt: played?.played_at ?? null,
+            isPremade: PREMADE_VIDEO_IDS.has(s.video_id),
+          });
+        }
+
+        // Add localStorage entries not in API (user songs that might not have loaded yet)
+        for (const p of playHistory) {
+          if (!apiIds.has(p.video_id)) {
+            merged.push({
+              video_id: p.video_id,
+              title: p.title,
+              artist: p.artist,
+              bpm: p.bpm,
+              playedAt: p.played_at,
+              isPremade: false,
+            });
+          }
+        }
+
+        // Split into groups for sorting
+        const played: SongEntry[] = [];
+        const unplayedPremade: SongEntry[] = [];
+        const unplayedUser: SongEntry[] = [];
+
+        for (const s of merged) {
+          if (s.playedAt) played.push(s);
+          else if (s.isPremade) unplayedPremade.push(s);
+          else unplayedUser.push(s);
+        }
+
+        // Played: most recently played first
+        played.sort((a, b) => b.playedAt! - a.playedAt!);
+
+        // Unplayed premade: Fisher-Yates shuffle (no song bias)
+        for (let i = unplayedPremade.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [unplayedPremade[i], unplayedPremade[j]] = [
+            unplayedPremade[j],
+            unplayedPremade[i],
+          ];
+        }
+
+        // Unplayed user-added: keep API order (newest first)
+
+        setSongs([...played, ...unplayedUser, ...unplayedPremade]);
       })
-      .catch(() => {/* non-fatal in dev */});
+      .catch(() => {
+        // API unreachable — show localStorage entries only
+        const fallback = playHistory.map((p) => ({
+          video_id: p.video_id,
+          title: p.title,
+          artist: p.artist,
+          bpm: p.bpm,
+          playedAt: p.played_at,
+          isPremade: PREMADE_VIDEO_IDS.has(p.video_id),
+        }));
+        setSongs(fallback);
+      });
   }, []);
 
-  const play = useCallback((entry: CatalogEntry, difficulty: Difficulty) => {
-    const chart = charts[entry.chart_url];
-    if (!chart) return;
-    resetGame();
-    setActiveSong(chart, difficulty);
-    navigate('/play');
-  }, [charts, resetGame, setActiveSong, navigate]);
+  // On-demand chart fetch + play
+  const handlePlay = useCallback(
+    async (entry: SongEntry) => {
+      setLoadingSong(entry.video_id);
+      try {
+        const res = await fetch(`/api/chart/${entry.video_id}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const chart: ChartData = await res.json();
+        resetGame();
+        setActiveSong(chart, "easy");
+        navigate("/play");
+      } catch (err) {
+        console.error("[HomeScreen] Failed to load chart:", err);
+        setLoadingSong(null);
+      }
+    },
+    [resetGame, setActiveSong, navigate],
+  );
 
   const handleAnalyze = useCallback(() => {
     const url = ytUrl.trim();
     if (!url) {
-      setYtUrlError('Please enter a YouTube URL.');
+      setYtUrlError("Please enter a YouTube URL.");
       return;
     }
     if (!isValidYouTubeUrl(url)) {
-      setYtUrlError('Please enter a valid YouTube URL (e.g. youtube.com/watch?v=... or youtu.be/...)');
+      setYtUrlError(
+        "Please enter a valid YouTube URL (e.g. youtube.com/watch?v=... or youtu.be/...)",
+      );
       return;
     }
-    setYtUrlError('');
-    navigate('/loading', { state: { ytUrl: url } });
+    setYtUrlError("");
+    navigate("/loading", { state: { ytUrl: url } });
   }, [ytUrl, navigate]);
-
-  const featured = catalog.find(e => e.featured);
-  const featuredChart = featured ? charts[featured.chart_url] : null;
 
   return (
     <div
       className="relative h-full w-full"
-      style={{ overflowY: 'auto', scrollbarWidth: 'none' } as React.CSSProperties}
+      style={
+        { overflowY: "auto", scrollbarWidth: "none" } as React.CSSProperties
+      }
     >
-      {/* ── Static neon grid fallback (CSS only, always visible first) ──────── */}
-      <div
-        className="fixed inset-0 pointer-events-none"
-        style={{
-          backgroundImage: `
-            linear-gradient(rgba(0,255,255,0.035) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(0,255,255,0.035) 1px, transparent 1px)
-          `,
-          backgroundSize: '52px 52px',
-        }}
-      />
-      {/* ── WebGPU animated particle background (lazy-loaded) ─────────────── */}
+      {/* WebGPU animated background */}
       <Suspense fallback={null}>
         <HomeBackground />
       </Suspense>
-      {/* Vignette over grid — darkens edges, keeps center readable */}
+
+      <div
+        className="fixed inset-0 pointer-events-none"
+        style={{ background: "rgba(10,0,20,0.82)" }}
+      />
       <div
         className="fixed inset-0 pointer-events-none"
         style={{
-          background: `
-            radial-gradient(ellipse 75% 65% at 50% 25%, transparent 0%, rgba(8,8,16,0.88) 100%),
-            linear-gradient(to top, rgba(8,8,16,0.98) 0%, transparent 18%)
-          `,
+          backgroundImage:
+            "repeating-linear-gradient(0deg, rgba(0,0,0,0.08) 0px, rgba(0,0,0,0.08) 1px, transparent 1px, transparent 3px)",
+          backgroundSize: "100% 3px",
+          zIndex: 1,
         }}
       />
-      {/* Subtle horizontal scan-line texture */}
       <div
-        className="fixed inset-0 pointer-events-none"
+        className="fixed bottom-0 left-0 right-0 pointer-events-none"
         style={{
-          backgroundImage: 'repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0px, rgba(255,255,255,0.018) 1px, transparent 1px, transparent 4px)',
-          backgroundSize: '100% 4px',
+          height: 80,
+          background: "linear-gradient(transparent, rgba(10,0,20,0.98))",
+          zIndex: 1,
         }}
       />
 
-      {/* ── Settings panel (modal) ─────────────────────────────────────────── */}
-      {settingsOpen && <AudioOffsetPanel onClose={() => setSettingsOpen(false)} />}
-
-      {/* ── Settings gear button (top-right) ──────────────────────────────── */}
+      {/* Settings */}
+      {settingsOpen && (
+        <AudioOffsetPanel onClose={() => setSettingsOpen(false)} />
+      )}
       <button
-        className="fixed top-4 right-4 z-30 w-9 h-9 flex items-center justify-center text-lg transition-all duration-150"
-        style={{
-          color: 'rgba(255,255,255,0.3)',
-          border: '1px solid rgba(255,255,255,0.1)',
-          background: 'rgba(8,8,16,0.6)',
-          cursor: 'pointer',
-        }}
+        className="fixed top-4 right-4 z-30 w-9 h-9 flex items-center justify-center text-lg chrome-frame"
+        style={{ color: "#00eeff", background: "#120024", cursor: "pointer" }}
         onClick={() => setSettingsOpen(true)}
         aria-label="Open settings"
-        onMouseEnter={e => {
-          (e.currentTarget as HTMLElement).style.color = '#00ffff';
-          (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,255,255,0.35)';
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLElement).style.color = "#fff";
+          (e.currentTarget as HTMLElement).style.boxShadow =
+            "0 0 20px rgba(0,238,255,0.4), inset 0 0 20px rgba(68,0,170,0.1)";
         }}
-        onMouseLeave={e => {
-          (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.3)';
-          (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.1)';
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLElement).style.color = "#00eeff";
+          (e.currentTarget as HTMLElement).style.boxShadow =
+            "0 0 20px rgba(68,0,170,0.3), inset 0 0 20px rgba(68,0,170,0.1)";
         }}
       >
-        ⚙
+        &#9881;
       </button>
 
-      {/* ── Page content ──────────────────────────────────────────────────── */}
-      <div className="relative z-10 flex flex-col items-center px-4 pt-16 pb-24 min-h-full">
+      {/* Page content */}
+      <div className="relative z-10 flex flex-col items-center px-4 pt-10 pb-24 min-h-full">
+        {/* Decorative stars above title */}
+        <StarBurst count={5} />
+
+        {/* Rainbow rule */}
+        <div className="rainbow-rule w-4/5 max-w-lg mt-3 mb-4" />
 
         {/* Title */}
-        <h1
-          className="text-5xl sm:text-7xl font-black tracking-[0.12em] text-center leading-none select-none"
-          style={{
-            color: '#00ffff',
-            textShadow: '0 0 18px #00ffff, 0 0 50px rgba(0,255,255,0.45), 0 0 100px rgba(0,255,255,0.18)',
-          }}
-        >
-          DANCE DANCE
-          <br />
-          DEVOLUTION
-        </h1>
-        <p
-          className="mt-4 text-xs sm:text-sm tracking-[0.28em] text-center select-none"
-          style={{ color: 'rgba(255,255,255,0.42)' }}
-        >
-          A RHYTHM GAME POWERED BY WEBGPU + AI
-        </p>
-
-        {/* ── Featured song ─────────────────────────────────────────────── */}
-        {featured && (
-          <div className="mt-14 w-full max-w-md">
-            <SectionLabel text="★  FEATURED SONG" />
-            <div
-              className="p-6"
-              style={{
-                background: 'linear-gradient(135deg, rgba(255,0,255,0.07) 0%, rgba(0,255,255,0.05) 100%)',
-                border: '1px solid rgba(255,0,255,0.28)',
-                boxShadow: '0 0 36px rgba(255,0,255,0.09), inset 0 0 24px rgba(255,0,255,0.04)',
-              }}
-            >
-              <div className="flex items-start gap-4">
-                {/* Thumbnail */}
-                <div
-                  className="shrink-0"
-                  style={{
-                    width: 72,
-                    height: 72,
-                    border: '1px solid rgba(255,0,255,0.3)',
-                    overflow: 'hidden',
-                  }}
-                >
-                  <img
-                    src={featured.thumbnail_url}
-                    alt={featured.title}
-                    width={72}
-                    height={72}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-                  />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <div
-                      className="text-2xl font-black tracking-widest truncate"
-                      style={{ color: '#ff00ff', textShadow: '0 0 14px rgba(255,0,255,0.8)' }}
-                    >
-                      {featured.title.toUpperCase()}
-                    </div>
-                    <span
-                      className="text-xs px-2 py-1 shrink-0"
-                      style={{
-                        border: '1px solid rgba(255,0,255,0.3)',
-                        color: 'rgba(255,0,255,0.65)',
-                      }}
-                    >
-                      ★ FEATURED
-                    </span>
-                  </div>
-                  <div className="mt-1 text-sm" style={{ color: 'rgba(255,255,255,0.5)' }}>
-                    {featured.artist}&nbsp;·&nbsp;{featured.bpm} BPM
-                  </div>
-                </div>
-              </div>
-              <div className="mt-5 flex gap-3">
-                <DiffButton
-                  label="▶ PLAY EASY"
-                  color="#00ffff"
-                  bg="rgba(0,255,255,0.11)"
-                  disabled={!featuredChart}
-                  onClick={() => play(featured, 'easy')}
-                />
-                <DiffButton
-                  label="▶ PLAY HARD"
-                  color="#ff8800"
-                  bg="rgba(255,136,0,0.11)"
-                  disabled={!featuredChart}
-                  onClick={() => play(featured, 'hard')}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Song thumbnails ───────────────────────────────────────────── */}
-        <div className="mt-10 w-full max-w-md">
-          <SectionLabel text="PICK A SONG" />
-          <div className="grid grid-cols-3 gap-3">
-            {catalog.map((entry) => (
-              <SongCard
-                key={entry.id}
-                entry={entry}
-                color={SONG_COLORS[entry.id] ?? '#ffffff'}
-                onClick={() => play(entry, 'easy')}
-              />
-            ))}
-          </div>
-          <HoverButton
-            className="mt-3 w-full py-2 text-xs tracking-widest"
-            baseStyle={{ border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.38)' }}
-            hoverStyle={{ color: '#00ffff', borderColor: 'rgba(0,255,255,0.3)' }}
-            onClick={() => navigate('/select')}
+        <div className="text-center select-none">
+          <h1
+            style={
+              {
+                fontFamily: "'Press Start 2P', 'Courier New', monospace",
+                fontSize: "clamp(1.3rem, 4.5vw, 2.6rem)",
+                fontWeight: 400,
+                lineHeight: 1.4,
+                letterSpacing: "0.06em",
+                background:
+                  "linear-gradient(90deg, #ff0066, #ff6600, #ffd700, #66ff00, #00eeff, #ff00cc, #ff0066)",
+                backgroundSize: "200% 100%",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
+                filter:
+                  "drop-shadow(0 0 18px rgba(255,0,102,0.5)) drop-shadow(0 4px 8px rgba(0,0,0,0.9))",
+                animation: "chrome-shimmer 4s linear infinite",
+              } as React.CSSProperties
+            }
           >
-            VIEW ALL SONGS →
-          </HoverButton>
+            DANCE DANCE
+            <br />
+            DEVOLUTION
+          </h1>
+          <p
+            className="mt-3 select-none"
+            style={{
+              fontFamily: "'Bungee', 'Impact', 'Arial Black', sans-serif",
+              fontSize: "0.6rem",
+              letterSpacing: "0.18em",
+              color: "rgba(0,238,255,0.45)",
+            }}
+          >
+            USE ARROW KEYS // TAP ZONES
+          </p>
         </div>
 
-        {/* ── YouTube input ─────────────────────────────────────────────── */}
-        <div className="mt-10 w-full max-w-md">
-          <SectionLabel text="CUSTOM SONG (YOUTUBE)" />
+        {/* Rainbow rule */}
+        <div className="rainbow-rule w-4/5 max-w-lg mt-4 mb-2" />
+
+        {/* Decorative stars below title */}
+        <StarBurst count={5} />
+
+        {/* Custom Song (YouTube) */}
+        <div className="mt-8 w-full max-w-md">
+          <SectionLabel text="> CUSTOM SONG" color="#00eeff" />
           <div className="flex gap-2">
             <input
               type="url"
               value={ytUrl}
-              onChange={e => { setYtUrl(e.target.value); if (ytUrlError) setYtUrlError(''); }}
-              onKeyDown={e => { if (e.key === 'Enter') handleAnalyze(); }}
+              onChange={(e) => {
+                setYtUrl(e.target.value);
+                if (ytUrlError) setYtUrlError("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleAnalyze();
+              }}
               placeholder="https://youtube.com/watch?v=..."
-              className="flex-1 px-4 py-3 text-sm outline-none"
+              className="flex-1 px-4 py-3 outline-none chrome-frame"
               style={{
-                background: 'rgba(255,255,255,0.04)',
-                border: `1px solid ${ytUrlError ? 'rgba(255,80,80,0.5)' : 'rgba(255,255,255,0.12)'}`,
-                color: 'rgba(255,255,255,0.9)',
-                fontFamily: 'inherit',
-                transition: 'border-color 0.15s',
+                background: "#000008",
+                color: "#f0e8ff",
+                fontFamily: "'VT323', 'Courier New', monospace",
+                fontSize: "1.1rem",
+                transition: "border-color 0.15s",
+                borderColor: ytUrlError ? "rgba(255,0,102,0.6)" : undefined,
               }}
-              onFocus={e => {
-                (e.target as HTMLInputElement).style.borderColor = ytUrlError ? 'rgba(255,80,80,0.7)' : 'rgba(0,255,255,0.38)';
+              onFocus={(e) => {
+                (e.target as HTMLInputElement).style.boxShadow =
+                  "0 0 20px rgba(0,238,255,0.3), inset 0 0 20px rgba(68,0,170,0.1)";
               }}
-              onBlur={e  => {
-                (e.target as HTMLInputElement).style.borderColor = ytUrlError ? 'rgba(255,80,80,0.5)' : 'rgba(255,255,255,0.12)';
+              onBlur={(e) => {
+                (e.target as HTMLInputElement).style.boxShadow =
+                  "0 0 20px rgba(68,0,170,0.3), inset 0 0 20px rgba(68,0,170,0.1)";
               }}
             />
             <button
-              className="px-5 py-3 font-bold tracking-widest text-sm whitespace-nowrap transition-all duration-150"
+              className="arcade-btn px-5 py-3 whitespace-nowrap"
               style={{
-                background: ytUrl.trim() ? 'rgba(255,0,255,0.13)' : 'rgba(255,255,255,0.04)',
-                border: `2px solid ${ytUrl.trim() ? 'rgba(255,0,255,0.6)' : 'rgba(255,255,255,0.1)'}`,
-                color: ytUrl.trim() ? '#ff00ff' : 'rgba(255,255,255,0.25)',
-                cursor: ytUrl.trim() ? 'pointer' : 'default',
+                background: ytUrl.trim()
+                  ? "rgba(255,0,102,0.15)"
+                  : "rgba(255,255,255,0.04)",
+                color: ytUrl.trim() ? "#ff0066" : "rgba(240,232,255,0.25)",
+                fontSize: "0.8rem",
+                cursor: ytUrl.trim() ? "pointer" : "default",
               }}
               onClick={handleAnalyze}
             >
               ANALYZE
             </button>
           </div>
-          {ytUrlError ? (
-            <p className="mt-2 text-xs" style={{ color: '#ff5555' }}>
+          {ytUrlError && (
+            <p
+              className="mt-2"
+              style={{
+                fontFamily: "'VT323', monospace",
+                fontSize: "0.95rem",
+                color: "#ff0066",
+              }}
+            >
               {ytUrlError}
-            </p>
-          ) : (
-            <p className="mt-2 text-xs" style={{ color: 'rgba(255,255,255,0.24)' }}>
-              AI-powered chart generation&nbsp;·&nbsp;~30 seconds&nbsp;·&nbsp;full song catalog supported
             </p>
           )}
         </div>
 
-      </div>
-
-      {/* ── Footer ─────────────────────────────────────────────────────────── */}
-      <div
-        className="fixed bottom-0 left-0 right-0 py-3 text-center text-xs tracking-[0.22em] pointer-events-none z-20 select-none"
-        style={{
-          color: 'rgba(255,255,255,0.26)',
-          background: 'linear-gradient(transparent, rgba(8,8,16,0.96))',
-        }}
-      >
-        USE ARROW KEYS (DESKTOP) OR TAP ZONES (MOBILE) TO PLAY
+        {/* Song Library */}
+        {songs.length > 0 && (
+          <div className="mt-8 w-full max-w-3xl">
+            <SectionLabel text="> SONG LIBRARY" color="#ff00cc" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {songs.map((entry) => (
+                <SongCard
+                  key={entry.video_id}
+                  entry={entry}
+                  isLoading={loadingSong === entry.video_id}
+                  onPlay={() => handlePlay(entry)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// ── Utility ────────────────────────────────────────────────────────────────
+// -- Utilities ----------------------------------------------------------------
+
+/** Difficulty tier bar color: green → yellow → red as tier increases. */
+function tierColor(tier: number): string {
+  if (tier <= 3) return "#66ff00"; // green — easy
+  if (tier <= 6) return "#ffd700"; // gold — medium
+  if (tier <= 8) return "#ff6600"; // orange — hard
+  return "#ff0033"; // red — extreme
+}
 
 function isValidYouTubeUrl(url: string): boolean {
   try {
     const u = new URL(url);
-    const host = u.hostname.replace(/^www\./, '');
-    if (host === 'youtube.com') {
+    const host = u.hostname.replace(/^www\./, "");
+    if (host === "youtube.com") {
       return (
-        (u.pathname === '/watch' && !!u.searchParams.get('v')) ||
-        u.pathname.startsWith('/shorts/') ||
-        u.pathname.startsWith('/embed/')
+        (u.pathname === "/watch" && !!u.searchParams.get("v")) ||
+        u.pathname.startsWith("/shorts/") ||
+        u.pathname.startsWith("/embed/")
       );
     }
-    if (host === 'youtu.be') {
+    if (host === "youtu.be") {
       return u.pathname.length > 1;
     }
     return false;
@@ -345,143 +392,174 @@ function isValidYouTubeUrl(url: string): boolean {
   }
 }
 
-// ── Small reusable sub-components ──────────────────────────────────────────
+// -- Sub-components -----------------------------------------------------------
 
-function SectionLabel({ text }: { text: string }) {
+const STAR_COLORS = [
+  "#ff0066",
+  "#ffd700",
+  "#00eeff",
+  "#66ff00",
+  "#ff6600",
+  "#ff00cc",
+];
+
+function StarBurst({ count = 6 }: { count?: number }) {
+  return (
+    <div className="flex justify-center gap-3" style={{ fontSize: "0.7rem" }}>
+      {Array.from({ length: count }, (_, i) => (
+        <span
+          key={i}
+          className="ddr-star"
+          style={{
+            color: STAR_COLORS[i % STAR_COLORS.length],
+            animationDelay: `${i * 0.35}s`,
+            textShadow: "0 0 8px currentColor",
+          }}
+        >
+          &#9733;
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function SectionLabel({ text, color }: { text: string; color: string }) {
   return (
     <p
-      className="text-xs tracking-[0.3em] mb-3 select-none"
-      style={{ color: 'rgba(255,255,255,0.32)' }}
+      className="mb-3 select-none"
+      style={{
+        fontFamily: "'Press Start 2P', 'Courier New', monospace",
+        fontSize: "0.5rem",
+        letterSpacing: "0.15em",
+        color,
+        textShadow: `0 0 10px ${color}55`,
+      }}
     >
       {text}
     </p>
   );
 }
 
-function DiffButton({
-  label,
-  color,
-  bg,
-  disabled,
-  onClick,
-}: {
-  label: string;
-  color: string;
-  bg: string;
-  disabled: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className="flex-1 py-3 font-bold tracking-widest text-sm transition-all duration-150"
-      style={{
-        background: disabled ? 'rgba(255,255,255,0.03)' : bg,
-        border: `2px solid ${disabled ? 'rgba(255,255,255,0.1)' : color}`,
-        color: disabled ? 'rgba(255,255,255,0.18)' : color,
-        textShadow: disabled ? 'none' : `0 0 10px ${color}`,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.6 : 1,
-      }}
-      disabled={disabled}
-      onClick={onClick}
-      onMouseEnter={e => {
-        if (!disabled) (e.currentTarget as HTMLElement).style.transform = 'scale(1.02)';
-      }}
-      onMouseLeave={e => {
-        (e.currentTarget as HTMLElement).style.transform = '';
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
 function SongCard({
   entry,
-  color,
-  onClick,
+  isLoading,
+  onPlay,
 }: {
-  entry: CatalogEntry;
-  color: string;
-  onClick: () => void;
+  entry: SongEntry;
+  isLoading: boolean;
+  onPlay: () => void;
 }) {
-  const handleEnter = (e: React.MouseEvent<HTMLButtonElement>) => {
-    const el = e.currentTarget;
-    el.style.borderColor = `${color}55`;
-    el.style.boxShadow = `0 0 18px ${color}18`;
-    el.style.transform = 'scale(1.03)';
-  };
-  const handleLeave = (e: React.MouseEvent<HTMLButtonElement>) => {
-    const el = e.currentTarget;
-    el.style.borderColor = `${color}1a`;
-    el.style.boxShadow = '';
-    el.style.transform = '';
-  };
+  // Color scheme: premade = magenta, user-added = cyan
+  const accent = entry.isPremade ? "#ff00cc" : "#00eeff";
+  const accentDim = entry.isPremade
+    ? "rgba(255,0,204,0.3)"
+    : "rgba(0,238,255,0.3)";
+  const accentBg = entry.isPremade
+    ? "rgba(255,0,204,0.06)"
+    : "rgba(0,238,255,0.06)";
+  const accentBtn = entry.isPremade
+    ? "rgba(255,0,204,0.12)"
+    : "rgba(0,238,255,0.12)";
+  const accentBtnHover = entry.isPremade
+    ? "rgba(255,0,204,0.25)"
+    : "rgba(0,238,255,0.25)";
+  const accentGlow = entry.isPremade
+    ? "rgba(255,0,204,0.4)"
+    : "rgba(0,238,255,0.4)";
+  const accentBtnGlow = entry.isPremade
+    ? "rgba(255,0,204,0.5)"
+    : "rgba(0,238,255,0.5)";
 
   return (
-    <button
-      className="flex flex-col items-start p-3 text-left w-full transition-all duration-150"
-      style={{
-        background: `linear-gradient(135deg, ${color}0d, transparent)`,
-        border: `1px solid ${color}1a`,
-      }}
-      onMouseEnter={handleEnter}
-      onMouseLeave={handleLeave}
-      onClick={onClick}
+    <div
+      className="flex items-center gap-2 px-2.5 py-1.5 chrome-frame"
+      style={{ background: "rgba(18,0,36,0.9)" }}
     >
-      {/* Thumbnail */}
+      {/* YouTube thumbnail */}
       <div
-        className="w-full aspect-square mb-2 flex items-center justify-center text-3xl overflow-hidden"
+        className="shrink-0 overflow-hidden"
         style={{
-          background: `linear-gradient(135deg, ${color}16, ${color}06)`,
-          border: `1px solid ${color}16`,
-          color: color,
-          textShadow: `0 0 14px ${color}`,
+          width: 40,
+          height: 40,
+          border: `2px solid ${accentDim}`,
+          background: accentBg,
         }}
       >
         <img
-          src={entry.thumbnail_url}
+          src={`https://img.youtube.com/vi/${entry.video_id}/mqdefault.jpg`}
           alt={entry.title}
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          onError={e => {
-            (e.currentTarget as HTMLImageElement).style.display = 'none';
+          loading="lazy"
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.display = "none";
           }}
         />
       </div>
-      <div
-        className="text-xs font-bold tracking-wide truncate w-full"
-        style={{ color: color, textShadow: `0 0 6px ${color}` }}
+
+      {/* Metadata */}
+      <div className="flex-1 min-w-0">
+        <div
+          style={{
+            fontFamily: "'VT323', 'Courier New', monospace",
+            fontSize: "1rem",
+            lineHeight: 1.2,
+            color: "#f0e8ff",
+          }}
+        >
+          {entry.title}
+        </div>
+        <div
+          style={{
+            fontFamily: "'VT323', monospace",
+            fontSize: "0.85rem",
+            lineHeight: 1.2,
+            color: accent,
+          }}
+        >
+          {entry.artist ?? "YouTube"}
+          {entry.bpm != null && (
+            <span style={{ color: "rgba(240,232,255,0.4)" }}>
+              {" "}
+              / {Math.round(entry.bpm)} BPM
+            </span>
+          )}
+          {entry.difficulty_tier != null && (
+            <span
+              style={{ color: tierColor(entry.difficulty_tier), marginLeft: 6 }}
+            >
+              {"▮".repeat(entry.difficulty_tier)}
+              <span style={{ opacity: 0.2 }}>
+                {"▮".repeat(10 - entry.difficulty_tier)}
+              </span>
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Play button */}
+      <button
+        className="shrink-0 arcade-btn"
+        style={{
+          padding: "4px 10px",
+          fontSize: "0.55rem",
+          background: isLoading ? "rgba(255,255,255,0.03)" : accentBtn,
+          color: isLoading ? "rgba(240,232,255,0.2)" : accent,
+          cursor: isLoading ? "wait" : "pointer",
+          textShadow: isLoading ? "none" : `0 0 8px ${accentBtnGlow}`,
+        }}
+        disabled={isLoading}
+        onClick={onPlay}
+        onMouseEnter={(e) => {
+          if (!isLoading)
+            (e.currentTarget as HTMLElement).style.background = accentBtnHover;
+        }}
+        onMouseLeave={(e) => {
+          if (!isLoading)
+            (e.currentTarget as HTMLElement).style.background = accentBtn;
+        }}
       >
-        {entry.title}
-      </div>
-      <div className="text-xs mt-0.5 truncate w-full" style={{ color: 'rgba(255,255,255,0.4)' }}>
-        {entry.artist}
-      </div>
-      <div className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.27)' }}>
-        {entry.bpm} BPM
-      </div>
-    </button>
-  );
-}
-
-interface HoverButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  baseStyle: React.CSSProperties;
-  hoverStyle: React.CSSProperties;
-}
-
-function HoverButton({ baseStyle, hoverStyle, onMouseEnter, onMouseLeave, style, ...props }: HoverButtonProps) {
-  return (
-    <button
-      {...props}
-      style={{ ...baseStyle, transition: 'color 0.15s, border-color 0.15s', ...style }}
-      onMouseEnter={e => {
-        Object.assign((e.currentTarget as HTMLElement).style, hoverStyle);
-        onMouseEnter?.(e);
-      }}
-      onMouseLeave={e => {
-        Object.assign((e.currentTarget as HTMLElement).style, baseStyle);
-        onMouseLeave?.(e);
-      }}
-    />
+        {isLoading ? "..." : "PLAY"}
+      </button>
+    </div>
   );
 }

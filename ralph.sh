@@ -40,7 +40,7 @@ read -r -d '' PROMPT << 'EOF' || true
 1. Read PLAN.md. Find the first issue with status READY, or IN PROGRESS if resuming from a failure. If no such issue exists, output <promise>COMPLETE</promise> and stop.
 2. Mark the issue IN PROGRESS in PLAN.md when you start, COMPLETE when done.
 3. Verify your work, marking acceptance criteria in PLAN.md, and fixing any failures before marking COMPLETE.
-4. Append a brief progress note to docs/progress.txt.
+4. Append a brief progress note (with timestamp) to docs/progress.txt.
 5. Make a git commit scoped to that issue only.
 6. If the completed issue was blocking others (e.g. 'Status: BLOCKED by Issue N'), mark those READY in PLAN.md. If no READY issues remain, output <promise>COMPLETE</promise>.
 ONLY WORK ON A SINGLE ISSUE. Never work on a BLOCKED issue.
@@ -51,7 +51,7 @@ trap 'rm -f "${tmpfile:-}"' EXIT INT TERM
 
 for ((i=1; i<=ITERATIONS; i++)); do
   [[ $i -gt 1 ]] && echo
-  echo "━━━ iteration $i / $ITERATIONS ━━━"
+  echo "━━━ iteration $i / $ITERATIONS started $(date "+%Y-%m-%d %H:%M:%S") ━━━"
   tmpfile=$(mktemp)
 
   # --output-format stream-json emits one JSON object per line as each event arrives.
@@ -91,6 +91,8 @@ for ((i=1; i<=ITERATIONS; i++)); do
         "\nturns=\(.num_turns) cost=$\(.total_cost_usd // 0 | . * 10000 | round / 10000) duration=\(.duration_ms / 1000 | floor)s\n"
 
       else empty end'
+
+  echo "━━━ iteration $i / $ITERATIONS ended $(date "+%Y-%m-%d %H:%M:%S") ━━━"
 
   if jq -e 'select(.type == "result") | .result | contains("<promise>COMPLETE</promise>")' "$tmpfile" > /dev/null 2>&1; then
     echo "━━━ complete after $i / $ITERATIONS iterations ━━━"

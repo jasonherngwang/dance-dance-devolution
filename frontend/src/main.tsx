@@ -8,7 +8,6 @@ import App from '@/App';
 // Three.js modules (imported by HomeScreen→HomeBackground and GameplayScreen→GameCanvas)
 // are automatically grouped into a shared vendor-three chunk via vite.config.ts.
 const HomeScreen      = lazy(() => import('@/screens/HomeScreen'));
-const SongSelectScreen = lazy(() => import('@/screens/SongSelectScreen'));
 const LoadingScreen   = lazy(() => import('@/screens/LoadingScreen'));
 const GameplayScreen  = lazy(() => import('@/screens/GameplayScreen'));
 const ResultsScreen   = lazy(() => import('@/screens/ResultsScreen'));
@@ -24,7 +23,6 @@ const router = createBrowserRouter([
     element: <App />,
     children: [
       { path: '/',        element: <Suspense fallback={<ScreenFallback />}><HomeScreen /></Suspense> },
-      { path: '/select',  element: <Suspense fallback={<ScreenFallback />}><SongSelectScreen /></Suspense> },
       { path: '/loading', element: <Suspense fallback={<ScreenFallback />}><LoadingScreen /></Suspense> },
       { path: '/play',    element: <Suspense fallback={<ScreenFallback />}><GameplayScreen /></Suspense> },
       { path: '/results', element: <Suspense fallback={<ScreenFallback />}><ResultsScreen /></Suspense> },

@@ -21,13 +21,4 @@ export interface JobStatus {
   /** YouTube video ID — available once extraction completes. Used to fetch the chart. */
   video_id?: string;
   error?: string;
-  /** @deprecated Legacy alias — backend sends 'state', not 'status' */
-  status?: JobStatusType;
-  /** @deprecated Legacy nested structure — use top-level title/artist/bpm instead */
-  details?: {
-    title?: string;
-    artist?: string;
-    bpm?: number;
-    duration?: number;
-  };
 }

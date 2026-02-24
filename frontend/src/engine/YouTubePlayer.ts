@@ -47,6 +47,7 @@ interface YTPlayerInstance {
   pauseVideo(): void;
   seekTo(seconds: number, allowSeekAhead: boolean): void;
   getCurrentTime(): number;
+  getDuration(): number;
   mute(): void;
   unMute(): void;
   setVolume(volume: number): void; // 0–100
@@ -108,6 +109,11 @@ export class YouTubePlayer {
   private _playerState = -1;
   private _fadeAnimId: number | null = null;
 
+  // Ad detection state
+  private _adPlaying = false;
+  private _expectedDuration = 0;
+  private _adCheckInterval: ReturnType<typeof setInterval> | null = null;
+
   /**
    * Called whenever the YouTube player state changes.
    * Receives the raw YT.PlayerState integer.
@@ -121,6 +127,26 @@ export class YouTubePlayer {
    * 101/150=embedding disabled by the video owner.
    */
   onError?: (code: number) => void;
+
+  /**
+   * Called when ad detection state changes.
+   * `adPlaying=true` means a pre-roll ad is playing; `false` means real video.
+   */
+  onAdStateChange?: (adPlaying: boolean) => void;
+
+  /**
+   * Set the expected full video duration (seconds) for ad detection.
+   * During ads, `player.getDuration()` returns the ad's short duration;
+   * when the real video starts it jumps to the full duration.
+   */
+  setExpectedDuration(duration: number): void {
+    this._expectedDuration = duration;
+  }
+
+  /** True when a pre-roll ad is detected as currently playing. */
+  get isAdPlaying(): boolean {
+    return this._adPlaying;
+  }
 
   /**
    * Load the YouTube IFrame API (if not already done) and mount a player
@@ -167,6 +193,7 @@ export class YouTubePlayer {
             this._player!.seekTo(segmentStart, true);
             this._player!.pauseVideo();
             this._ready = true;
+            this._startAdDetection();
             resolve();
           },
           onStateChange: ({ data }: { data: number }) => {
@@ -191,6 +218,53 @@ export class YouTubePlayer {
         },
       });
     });
+  }
+
+  /**
+   * Poll `getDuration()` every 500ms to detect pre-roll ads.
+   * During ads, `getDuration()` returns the ad's short duration (5-30s).
+   * When the real video loads, it jumps to the full video duration.
+   */
+  private _startAdDetection(): void {
+    if (this._expectedDuration <= 0 || !this._player) return;
+
+    this._adCheckInterval = setInterval(() => {
+      if (this._disposed || !this._player) {
+        this._stopAdDetection();
+        return;
+      }
+
+      const reported = this._player.getDuration();
+
+      // getDuration() returns 0 briefly before metadata loads — treat as unknown
+      if (reported <= 0) return;
+
+      const wasAd = this._adPlaying;
+
+      if (reported < this._expectedDuration * 0.5) {
+        // Reported duration is much shorter than expected → ad is playing
+        this._adPlaying = true;
+      } else {
+        // Reported duration matches expected → real video
+        this._adPlaying = false;
+      }
+
+      if (this._adPlaying !== wasAd) {
+        this.onAdStateChange?.(this._adPlaying);
+
+        // Once the real video is confirmed, stop polling
+        if (!this._adPlaying) {
+          this._stopAdDetection();
+        }
+      }
+    }, 500);
+  }
+
+  private _stopAdDetection(): void {
+    if (this._adCheckInterval !== null) {
+      clearInterval(this._adCheckInterval);
+      this._adCheckInterval = null;
+    }
   }
 
   /** Start playback. Call only after `load()` resolves. */
@@ -244,18 +318,16 @@ export class YouTubePlayer {
    * Returns game-relative current time in seconds:
    *   player.getCurrentTime() - segmentStart
    *
-   * Returns null when the player is not yet ready OR when state is not
-   * PLAYING (1) — e.g. during buffering, paused, or between ad and video.
+   * Returns null when the player is not yet ready, when state is not
+   * PLAYING (1), or when a pre-roll ad is detected as playing.
    * Returning null tells TimingEngine to free-run its internal clock rather
    * than resyncing to a potentially wrong position.
-   *
-   * Note: pre-roll ads also report state=1 while playing, so getCurrentTime()
-   * will return ad-relative time during ads. The TimingEngine will resync when
-   * the actual video starts, correcting any drift.
    */
   getCurrentTime(): number | null {
     if (!this._ready || !this._player) return null;
     if (this._playerState !== YT_PLAYING) return null;
+    // During ads, return null so TimingEngine doesn't resync to ad time
+    if (this._adPlaying) return null;
     return this._player.getCurrentTime() - this._segmentStart;
   }
 
@@ -270,6 +342,7 @@ export class YouTubePlayer {
 
   dispose(): void {
     this._disposed = true;
+    this._stopAdDetection();
     if (this._fadeAnimId !== null) {
       cancelAnimationFrame(this._fadeAnimId);
       this._fadeAnimId = null;

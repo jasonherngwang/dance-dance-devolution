@@ -115,6 +115,8 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
   const [touchInputEnabled, setTouchInputEnabled] = useState(!chartData);
   // True while the YouTube player is buffering mid-game (pauses game clock)
   const [ytBuffering, setYtBuffering] = useState(false);
+  // True while a YouTube pre-roll ad is playing (gates GO! transition)
+  const [ytAdPlaying, setYtAdPlaying] = useState(false);
 
   // Shared input handler ref so TouchInputZones can use the same callback
   const inputHandlerCallbackRef = useRef<
@@ -339,6 +341,20 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
           code,
           "— if this is 101/150 the video owner has disabled embedding.",
         );
+      };
+
+      // Ad detection: gate GO! until pre-roll ads finish.
+      // During ads, getDuration() returns the ad's short duration (5-30s).
+      // When the real video starts, it jumps to the full video duration.
+      ytPlayer.setExpectedDuration(
+        chartData.duration + (chartData.segment_start ?? 0),
+      );
+      ytPlayer.onAdStateChange = (adPlaying) => {
+        setYtAdPlaying(adPlaying);
+        if (!adPlaying && timingEngine.isPaused) {
+          // Ad finished and game clock was paused — restart at GO!
+          timingEngine.play(0);
+        }
       };
 
       // Pause game clock when YouTube stops playing (buffering, ad gap, end of ad),
@@ -632,8 +648,12 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
             audioPlayer.prewarm();
           }
 
-          // At GO (t >= 0): enable input and start audio / YouTube player
-          if (songTime >= 0) {
+          // At GO (t >= 0): enable input and start audio / YouTube player.
+          // For YouTube songs, gate on ad detection — if a pre-roll ad is
+          // still playing, pause the timing engine and wait for it to finish.
+          if (songTime >= 0 && ytPlayer?.isAdPlaying) {
+            timingEngine.pause();
+          } else if (songTime >= 0) {
             inputEnabled = true;
             inputHandler.enable();
             setTouchInputEnabled(true);
@@ -865,6 +885,40 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
             inputHandlerCallbackRef.current?.(direction, timestamp);
           }}
         />
+      )}
+
+      {/* Ad overlay — shown when a YouTube pre-roll ad is detected */}
+      {ytAdPlaying && (
+        <div
+          className="absolute inset-0 flex items-center justify-center"
+          style={{ zIndex: 20, pointerEvents: "none" }}
+        >
+          <div
+            style={{
+              padding: "14px 28px",
+              background: "rgba(0,0,0,0.75)",
+              border: "1px solid rgba(255,160,0,0.6)",
+              color: "rgba(255,180,40,0.95)",
+              fontFamily: 'Impact, "Arial Black", sans-serif',
+              fontSize: "1.1rem",
+              letterSpacing: "0.15em",
+              textShadow: "0 0 12px rgba(255,140,0,0.6)",
+              textAlign: "center",
+            }}
+          >
+            AD PLAYING
+            <div
+              style={{
+                fontSize: "0.65rem",
+                letterSpacing: "0.1em",
+                marginTop: "4px",
+                opacity: 0.7,
+              }}
+            >
+              GAME STARTS AFTER THE AD
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Buffering overlay — shown when YouTube player is not in PLAYING state */}

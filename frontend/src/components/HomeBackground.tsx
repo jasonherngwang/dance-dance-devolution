@@ -24,7 +24,7 @@ import { bloom } from "three/addons/tsl/display/BloomNode.js";
 // Config
 // ---------------------------------------------------------------------------
 
-const PARTICLE_COUNT = 180;
+const PARTICLE_COUNT = 300;
 const PULSE_RING_COUNT = 5;
 const PULSE_INTERVAL = 3.5; // seconds between auto-pulses
 
@@ -106,14 +106,14 @@ export function HomeBackground() {
     function makeParticle(halfW: number, halfH_: number): Particle {
       const [r, g, b] =
         NEON_COLORS[Math.floor(Math.random() * NEON_COLORS.length)];
-      const speed = 0.06 + Math.random() * 0.12;
+      const speed = 0.15 + Math.random() * 0.25;
       const angle = Math.random() * Math.PI * 2;
       return {
         x: (Math.random() - 0.5) * halfW * 2,
         y: (Math.random() - 0.5) * halfH_ * 2,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        maxSpeed: speed * 1.4,
+        maxSpeed: speed * 1.8,
         phase: Math.random() * Math.PI * 2,
         r,
         g,
@@ -175,7 +175,7 @@ export function HomeBackground() {
       camera.position.z = 10;
 
       // ── Ambient particles ─────────────────────────────────────────────
-      const planeGeo = new THREE.PlaneGeometry(0.12, 0.12);
+      const planeGeo = new THREE.PlaneGeometry(0.24, 0.24);
       const planeMat = new THREE.MeshBasicMaterial({
         blending: THREE.AdditiveBlending,
         transparent: true,
@@ -252,23 +252,17 @@ export function HomeBackground() {
           p.vx += (Math.random() - 0.5) * 0.004;
           p.vy += (Math.random() - 0.5) * 0.004;
 
-          // Speed clamp
+          // Speed clamp ONLY strictly applied
           const len = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
           if (len > p.maxSpeed) {
-            const inv = p.maxSpeed / len;
-            p.vx *= inv;
-            p.vy *= inv;
+            // Apply drag to gradually return to normal speed instead of hard snapping
+            p.vx += (p.vx * 0.95 - p.vx) * dt * 10;
+            p.vy += (p.vy * 0.95 - p.vy) * dt * 10;
           }
 
-          // Wrap around world edges
-          if (p.x > halfW + 0.6) p.x = -halfW - 0.6;
-          else if (p.x < -halfW - 0.6) p.x = halfW + 0.6;
-          if (p.y > HALF_H + 0.6) p.y = -HALF_H - 0.6;
-          else if (p.y < -HALF_H - 0.6) p.y = HALF_H + 0.6;
-
-          // Opacity: gentle sine oscillation (0.18 – 0.58)
+          // Opacity: gentle sine oscillation (0.35 – 0.95)
           const opacity =
-            0.18 + 0.4 * (0.5 + 0.5 * Math.sin(elapsed * 0.6 + p.phase));
+            0.35 + 0.6 * (0.5 + 0.5 * Math.sin(elapsed * 1.2 + p.phase));
 
           _mat4.makeTranslation(p.x, p.y, 0);
           ambientMesh!.setMatrixAt(i, _mat4);
@@ -303,7 +297,6 @@ export function HomeBackground() {
         pipeline.render();
       });
 
-      // ── Resize handling ───────────────────────────────────────────────
       resizeObserver = new ResizeObserver(() => {
         if (!renderer || disposed) return;
         const W2 = container!.clientWidth;
@@ -316,6 +309,9 @@ export function HomeBackground() {
         renderer.setSize(W2, H2);
       });
       resizeObserver.observe(container!);
+
+      // Store cleanup function for event listeners (pointer removed)
+      (container as any)._cleanupEvents = () => {};
     }
 
     // Defer init so the browser paints the HTML content first
@@ -330,6 +326,10 @@ export function HomeBackground() {
       disposed = true;
       clearTimeout(timer);
       resizeObserver?.disconnect();
+
+      if ((container as any)?._cleanupEvents) {
+        (container as any)._cleanupEvents();
+      }
 
       renderer?.setAnimationLoop(null);
       const canvas = renderer?.domElement;

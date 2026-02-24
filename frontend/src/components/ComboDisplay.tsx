@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from "react";
 
 // ---------------------------------------------------------------------------
 // Hype level thresholds
@@ -18,24 +18,24 @@ export function getHypeLevel(combo: number): HypeLevel {
 // ---------------------------------------------------------------------------
 
 const HYPE_COLOR: Record<HypeLevel, string> = {
-  0: '#ffffff',
-  1: '#ffdd00',   // gold at 10+
-  2: '#ff8800',   // orange at 25+
-  3: '#ff44ff',   // magenta/pink at 50+
+  0: "#ffffff",
+  1: "#ffdd00", // gold at 10+
+  2: "#ff8800", // orange at 25+
+  3: "#ff44ff", // magenta/pink at 50+
 };
 
 const HYPE_GLOW: Record<HypeLevel, string> = {
-  0: '0 0 10px #fff, 1px 1px 0 #333',
-  1: '0 0 14px #ffdd00, 0 0 32px #ffaa00, 1px 1px 0 #664400',
-  2: '0 0 18px #ff8800, 0 0 44px #ff6600, 1px 1px 0 #662200',
-  3: '0 0 22px #ff44ff, 0 0 55px #cc00cc, 0 0 100px #ff00ff, 1px 1px 0 #550055',
+  0: "0 0 10px #fff, 1px 1px 0 #333",
+  1: "0 0 16px #ffdd00, 0 0 38px #ffaa00, 1px 1px 0 #664400",
+  2: "0 0 24px #ff8800, 0 0 54px #ff6600, 1px 1px 0 #662200",
+  3: "0 0 36px #ff44ff, 0 0 80px #cc00cc, 0 0 140px #ff00ff, 2px 2px 0 #550055",
 };
 
 const HYPE_FONT_SIZE: Record<HypeLevel, string> = {
-  0: '2.4rem',
-  1: '2.7rem',
-  2: '3.0rem',
-  3: '3.6rem',
+  0: "3.0rem",
+  1: "3.6rem",
+  2: "4.5rem",
+  3: "5.8rem",
 };
 
 // ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ export function ComboDisplay({ onRegisterUpdate }: Props) {
         setDisplayCombo(newCombo);
         setHypeLevel(getHypeLevel(newCombo));
         if (newCombo > 0) {
-          setPulseKey(k => k + 1);
+          setPulseKey((k) => k + 1);
         }
       }
     });
@@ -84,21 +84,23 @@ export function ComboDisplay({ onRegisterUpdate }: Props) {
 
   if (displayCombo < 2 && !isBreaking) return null;
 
-  const color    = isBreaking ? '#ff3333' : HYPE_COLOR[hypeLevel];
-  const glow     = isBreaking ? '0 0 16px #ff3333, 0 0 40px #ff0000, 1px 1px 0 #660000' : HYPE_GLOW[hypeLevel];
+  const color = isBreaking ? "#ff3333" : HYPE_COLOR[hypeLevel];
+  const glow = isBreaking
+    ? "0 0 16px #ff3333, 0 0 40px #ff0000, 1px 1px 0 #660000"
+    : HYPE_GLOW[hypeLevel];
   const fontSize = HYPE_FONT_SIZE[isBreaking ? 0 : hypeLevel];
 
   return (
     <div className="pointer-events-none absolute inset-0">
       <div
         style={{
-          position: 'absolute',
-          left: '8%',
-          top: '35%',
-          textAlign: 'center',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
+          position: "absolute",
+          right: "12%",
+          top: "30%",
+          textAlign: "center",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
         }}
       >
         {/* Radial aura at hype level 1+ */}
@@ -106,12 +108,12 @@ export function ComboDisplay({ onRegisterUpdate }: Props) {
           <div
             className="combo-aura"
             style={{
-              position: 'absolute',
-              inset: '-40px',
-              borderRadius: '50%',
+              position: "absolute",
+              inset: "-40px",
+              borderRadius: "50%",
               background: `radial-gradient(ellipse at center, ${HYPE_COLOR[hypeLevel]}35 0%, transparent 70%)`,
               animationDuration:
-                hypeLevel >= 3 ? '0.32s' : hypeLevel >= 2 ? '0.50s' : '0.72s',
+                hypeLevel >= 3 ? "0.15s" : hypeLevel >= 2 ? "0.30s" : "0.50s",
             }}
           />
         )}
@@ -119,16 +121,21 @@ export function ComboDisplay({ onRegisterUpdate }: Props) {
         {/* Combo number */}
         <div
           key={pulseKey}
-          className={isBreaking ? 'combo-number combo-number--break' : 'combo-number combo-number--hit'}
+          className={
+            isBreaking
+              ? "combo-number combo-number--break"
+              : "combo-number combo-number--hit"
+          }
           style={{
             fontSize,
-            fontWeight: 400,
+            fontWeight: 800, // bolder font for better outline
             color,
             textShadow: glow,
+            WebkitTextStroke: "2px #000", // strong black outline
             lineHeight: 1,
             fontFamily: "'Press Start 2P', 'Courier New', monospace",
-            letterSpacing: '0',
-            position: 'relative',
+            letterSpacing: "0",
+            position: "relative",
             zIndex: 1,
           }}
         >
@@ -139,13 +146,13 @@ export function ComboDisplay({ onRegisterUpdate }: Props) {
         <div
           style={{
             fontFamily: "'Bungee', 'Impact', sans-serif",
-            fontSize: '0.85rem',
+            fontSize: "0.85rem",
             color,
-            letterSpacing: '0.25em',
+            letterSpacing: "0.25em",
             opacity: isBreaking ? 0.4 : 0.9,
             textShadow: `0 0 8px ${color}`,
             marginTop: 4,
-            position: 'relative',
+            position: "relative",
             zIndex: 1,
           }}
         >
@@ -158,12 +165,13 @@ export function ComboDisplay({ onRegisterUpdate }: Props) {
             className="hype-text"
             style={{
               fontFamily: "'Bungee', 'Impact', sans-serif",
-              fontSize: '0.95rem',
-              color: '#ff44ff',
-              letterSpacing: '0.24em',
-              textShadow: '0 0 16px #ff44ff, 0 0 38px #cc00cc, 0 0 70px #ff00ff',
+              fontSize: "0.95rem",
+              color: "#ff44ff",
+              letterSpacing: "0.24em",
+              textShadow:
+                "0 0 16px #ff44ff, 0 0 38px #cc00cc, 0 0 70px #ff00ff",
               marginTop: 6,
-              position: 'relative',
+              position: "relative",
               zIndex: 1,
             }}
           >

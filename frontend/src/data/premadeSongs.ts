@@ -62,4 +62,12 @@ export const PREMADE_VIDEO_IDS = new Set([
   'CCF1_jI8Prk', // Gasolina — Daddy Yankee
   'kJQP7kiw5Fk', // Despacito — Luis Fonsi ft. Daddy Yankee
   'NUsoVlDFqZg', // Bailando — Enrique Iglesias
+  'CzJbz9qSsd0', // Cheerleader — Porter Robinson
+  '5BqjhUmldDc', // Where You Are — John Summit & Hayla
+  'E89B5VEp1pg', // Push — Skrillex & Hamdi
+  'CprWhVqZFPA', // Lioness — Swedish House Mafia
+  '961v0E3b01g', // Miracle — Calvin Harris & Ellie Goulding
+  'xeKSdJqFM6o', // Baddy on the Floor — Jamie xx & Honey Dijon
+  'mixtPPEg97s', // Shake That Bunda — Fantasm & The Straikerz
+  'IZ9rssRq-FI', // Glow — Fred again.. x Skrillex
 ]);

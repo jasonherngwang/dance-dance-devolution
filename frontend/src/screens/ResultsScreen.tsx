@@ -3,14 +3,15 @@ import { useNavigate } from "react-router-dom";
 import { useGameStore } from "@/stores";
 import { useJobStore } from "@/stores/jobStore";
 import type { ChartData } from "@/types";
+import { triggerResultsConfetti } from "../components/ResultsConfetti";
+import { HomeBackground } from "../components/HomeBackground";
 
-// DDR grade colors
 const GRADE_COLORS: Record<string, string> = {
-  S: "#ffd700",
-  A: "#ff6600",
-  B: "#66ff00",
-  C: "#3366ff",
-  D: "#ff0033",
+  S: "var(--color-ddr-cyan)",
+  A: "var(--color-chrome-light)",
+  B: "var(--color-chrome-mid)",
+  C: "var(--color-chrome-dark)",
+  D: "var(--color-ddr-magenta)",
 };
 
 export default function ResultsScreen() {
@@ -28,6 +29,19 @@ export default function ResultsScreen() {
       navigate("/", { replace: true });
     }
   }, [gameResult, activeSong, navigate]);
+
+  useEffect(() => {
+    if (gameResult) {
+      triggerResultsConfetti();
+      const audio = new Audio("/audio/cheering.mp3"); // Ensure this file exists or will be added
+      audio.volume = 0.6;
+      audio
+        .play()
+        .catch((e) =>
+          console.log("Audio play failed (maybe autoplay blocked)", e),
+        );
+    }
+  }, [gameResult]);
 
   if (!gameResult || !activeSong) return null;
 
@@ -64,9 +78,10 @@ export default function ResultsScreen() {
     completedJobs.size > 0 ? [...completedJobs.entries()][0] : null;
 
   return (
-    <div
-      className="relative h-full w-full overflow-hidden"
-    >
+    <div className="relative h-full w-full overflow-hidden">
+      {/* Background Particles */}
+      <HomeBackground />
+
       {/* Scrolling starfield background */}
       <div
         className="fixed inset-0 pointer-events-none"
@@ -103,35 +118,22 @@ export default function ResultsScreen() {
               fontWeight: 400,
               letterSpacing: "0.12em",
               color: "#ffd700",
-              textShadow: "0 0 12px #ffd700, 0 0 30px rgba(255,215,0,0.4)",
             }}
           >
             <span
-              className="ddr-star"
               style={{
-                color: "#ffd700",
-                animationDelay: "0s",
-                textShadow: "0 0 8px #ffd700",
+                color: "var(--color-chrome-light)",
+                textShadow: "0 0 8px var(--color-chrome-light)",
               }}
             >
-              &#9733;
+              MISSION
             </span>{" "}
-            STAGE CLEAR{" "}
-            <span
-              className="ddr-star"
-              style={{
-                color: "#ffd700",
-                animationDelay: "0.5s",
-                textShadow: "0 0 8px #ffd700",
-              }}
-            >
-              &#9733;
-            </span>
+            ACCOMPLISHED
           </div>
         </div>
 
-        {/* Rainbow divider */}
-        <div className="rainbow-rule w-3/5 max-w-xs mt-2 mb-2" />
+        {/* Sleek scanner rule */}
+        <div className="rainbow-rule w-3/5 max-w-xs mt-2 mb-2 opacity-70" />
 
         {/* Song info — thumbnail + title */}
         <div
@@ -206,12 +208,18 @@ export default function ResultsScreen() {
               fontSize: "clamp(4rem, 12vw, 6.5rem)",
               fontWeight: 400,
               lineHeight: 1,
-              color: gradeColor,
-              textShadow: `
-                0 0 30px ${gradeColor},
-                0 0 70px ${gradeColor}88,
-                4px 4px 0 rgba(0,0,0,0.9)
-              `,
+              /* Brighter base color plus horizontal gradient for the shimmer */
+              background: `linear-gradient(90deg, ${gradeColor} 0%, #ffffff 50%, ${gradeColor} 100%)`,
+              backgroundSize: "200% 100%",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+              /* Using text-shadow for browsers that don't support drop-shadow with text clip,
+                 but keeping the heavy glow */
+              filter: `drop-shadow(0 0 30px ${gradeColor}) drop-shadow(0 0 70px ${gradeColor}88)`,
+              WebkitTextStroke: `2px ${gradeColor}`,
+              /* Slower shimmer, starts slightly after the stamp animation */
+              animation: "chrome-shimmer 3s 1s ease-in-out infinite alternate",
             }}
           >
             {gameResult.grade}
@@ -252,32 +260,32 @@ export default function ResultsScreen() {
             <StatRow
               label="SCORE"
               value={String(Math.floor(gameResult.score)).padStart(9, "0")}
-              color="#ffd700"
+              color="var(--color-ddr-cyan)"
               isBig
               last={false}
             />
             <StatRow
               label="PERFECT"
               value={String(gameResult.perfect)}
-              color="#ffd700"
+              color="var(--color-chrome-light)"
               last={false}
             />
             <StatRow
               label="GREAT"
               value={String(gameResult.great)}
-              color="#66ff00"
+              color="var(--color-chrome-mid)"
               last={false}
             />
             <StatRow
               label="MISS"
               value={String(gameResult.miss)}
-              color="#ff0033"
+              color="var(--color-ddr-magenta)"
               last={false}
             />
             <StatRow
               label="MAX COMBO"
               value={String(gameResult.maxCombo)}
-              color="#ff00cc"
+              color="var(--color-ddr-blue)"
               last={false}
             />
             <StatRow
@@ -298,8 +306,8 @@ export default function ResultsScreen() {
                 className="mt-3 w-full max-w-sm chrome-frame"
                 style={{
                   animation: "results-fade-up 0.5s 0.65s ease-out both",
-                  background: "#001a0a",
-                  borderColor: "#66ff00",
+                  background: "#02040c",
+                  borderColor: "var(--color-ddr-cyan)",
                 }}
               >
                 <div className="flex items-center gap-3 px-4 py-3">
@@ -319,7 +327,7 @@ export default function ResultsScreen() {
                         fontFamily: "'Press Start 2P', monospace",
                         fontSize: "0.35rem",
                         letterSpacing: "0.15em",
-                        color: "#66ff00",
+                        color: "var(--color-ddr-cyan)",
                         marginBottom: 2,
                       }}
                     >
@@ -344,18 +352,18 @@ export default function ResultsScreen() {
                     className="arcade-btn shrink-0"
                     style={{
                       padding: "6px 14px",
-                      background: "rgba(102,255,0,0.14)",
-                      color: "#66ff00",
+                      background: "rgba(0,255,255,0.14)",
+                      color: "var(--color-ddr-cyan)",
                       fontSize: "0.6rem",
-                      textShadow: "0 0 8px rgba(102,255,0,0.6)",
+                      textShadow: "0 0 8px rgba(0,255,255,0.6)",
                     }}
                     onMouseEnter={(e) => {
                       (e.currentTarget as HTMLElement).style.background =
-                        "rgba(102,255,0,0.26)";
+                        "rgba(0,255,255,0.26)";
                     }}
                     onMouseLeave={(e) => {
                       (e.currentTarget as HTMLElement).style.background =
-                        "rgba(102,255,0,0.14)";
+                        "rgba(0,255,255,0.14)";
                     }}
                     onClick={() => handlePlayReadySong(jobId, info.videoId)}
                   >
@@ -371,10 +379,14 @@ export default function ResultsScreen() {
           className="flex gap-4 mt-4"
           style={{ animation: "results-fade-up 0.5s 0.72s ease-out both" }}
         >
-          <ArcadeButton label="RETRY" color="#ff6600" onClick={handleRetry} />
+          <ArcadeButton
+            label="RETRY"
+            color="var(--color-chrome-light)"
+            onClick={handleRetry}
+          />
           <ArcadeButton
             label="NEW SONG"
-            color="#00eeff"
+            color="var(--color-ddr-cyan)"
             onClick={handleNewSong}
           />
         </div>

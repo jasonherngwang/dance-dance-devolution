@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Arrow outline -->
+  <polygon points="50,15 15,50 35,50 35,85 65,85 65,50 85,50" fill="none" stroke="#ff00cc" stroke-width="8" stroke-linejoin="round"/>
+  <!-- Arrow inner fill -->
+  <polygon points="50,22 25,47 39,47 39,81 61,81 61,47 75,47" fill="#00eeff" />
+</svg>

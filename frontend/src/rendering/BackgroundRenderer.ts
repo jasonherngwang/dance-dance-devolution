@@ -22,14 +22,14 @@ const AMBIENT_SPEED_MULT = [1.0, 1.4, 1.8, 2.5] as const;
 const AMBIENT_COUNT = 40;
 const PULSE_RING_COUNT = 4;
 
-// DDR-authentic ring color palette: blue/cyan dominant (classic DDR 2nd Mix blue)
+// 2000s PS2 chrome-era Ring color palette: cooler blues, cyan, and deep purple
 const RING_COLORS: [number, number, number][] = [
-  [0.0, 0.55, 1.0], // bright blue
-  [0.0, 0.85, 1.0], // cyan-blue
-  [0.1, 0.3, 1.0], // royal blue
-  [0.0, 1.0, 0.9], // cyan-teal
-  [0.35, 0.0, 1.0], // blue-violet (accent)
-  [0.0, 0.7, 0.8], // steel teal
+  [0.0, 0.4, 1.0], // deep blue
+  [0.0, 1.0, 1.0], // cyan
+  [0.1, 0.1, 0.3], // subtle dark slate
+  [0.6, 0.0, 1.0], // electric purple
+  [0.8, 0.8, 0.9], // cool silver/white
+  [0.0, 0.5, 0.7], // steel teal
 ];
 
 // ---------------------------------------------------------------------------
@@ -223,20 +223,20 @@ export class BackgroundRenderer {
     p.vx = Math.cos(angle) * speed;
     p.vy = Math.sin(angle) * speed;
 
-    // DDR palette: purple, hot pink, teal
+    // 2000s PS2 ambient palette: moody blues, cyan, and subtle purple
     const roll = Math.random();
-    if (roll < 0.35) {
-      p.r = 0.6;
-      p.g = 0.1;
-      p.b = 1.0; // purple
-    } else if (roll < 0.65) {
-      p.r = 1.0;
-      p.g = 0.0;
-      p.b = 0.6; // hot pink
-    } else {
+    if (roll < 0.4) {
+      p.r = 0.0;
+      p.g = 0.2;
+      p.b = 0.8; // dark blue
+    } else if (roll < 0.75) {
       p.r = 0.0;
       p.g = 0.8;
-      p.b = 0.9; // teal
+      p.b = 1.0; // cyan
+    } else {
+      p.r = 0.4;
+      p.g = 0.0;
+      p.b = 0.8; // subtle purple
     }
     p.phase = Math.random() * Math.PI * 2;
   }
@@ -260,8 +260,8 @@ export class BackgroundRenderer {
     ring.life = 0;
     ring.mesh.scale.setScalar(0.15);
     ring.mesh.visible = true;
-    // Cycle through DDR beat colors
-    const beatColors = [0x0088ff, 0x00aaff, 0x00ccff, 0x44aaff];
+    // Cycle through PS2-era beat colors
+    const beatColors = [0x00ffff, 0x0088ff, 0xaa00ff, 0x0044ff];
     (ring.mesh.material as THREE.MeshBasicMaterial).color.setHex(
       beatColors[this.pulseRingIdx % beatColors.length],
     );

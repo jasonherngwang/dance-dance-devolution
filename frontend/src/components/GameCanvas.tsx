@@ -220,6 +220,13 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
 
     // Total judgeable slots — for game-end detection in real mode
     const totalNotes = isRealGame ? countJudgeableNotes(notes) : 0;
+    const lastNoteTime = notes.length > 0 ? notes[notes.length - 1].time : 0;
+
+    // Safety net: don't end the game until we've passed the chart duration + lead in,
+    // and wait a few extra seconds to ensure the final notes finish animating.
+    const gameEndSafetyTime =
+      Math.max(chartDuration + LEAD_IN_S, lastNoteTime) + 2.0;
+
     const judgedCountRef = { current: 0 };
     const gameEndedRef = { current: false };
 
@@ -708,10 +715,11 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
       }
 
       // Also end real game if we've run past the chart duration (safety net)
+      // This is necessary if notes are missed but the auto-miss callback didn't hit for some reason
       if (
         isRealGame &&
         !gameEndedRef.current &&
-        songTime >= chartDuration + 0.5
+        songTime >= gameEndSafetyTime
       ) {
         gameEndedRef.current = true;
         setTimeout(endGameSession, 500);

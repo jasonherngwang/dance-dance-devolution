@@ -228,11 +228,8 @@ export default function HomeScreen() {
 
       {/* Page content */}
       <div className="relative z-10 flex flex-col items-center px-4 pt-10 pb-24 min-h-full">
-        {/* Decorative stars above title */}
-        <StarBurst count={5} />
-
-        {/* Rainbow rule */}
-        <div className="rainbow-rule w-4/5 max-w-lg mt-3 mb-4" />
+        {/* Sleek scanner rule above title */}
+        <div className="rainbow-rule w-3/5 max-w-sm mt-8 mb-4 opacity-70" />
 
         {/* Title */}
         <div className="text-center select-none">
@@ -245,14 +242,14 @@ export default function HomeScreen() {
                 lineHeight: 1.4,
                 letterSpacing: "0.06em",
                 background:
-                  "linear-gradient(90deg, #ff0066, #ff6600, #ffd700, #66ff00, #00eeff, #ff00cc, #ff0066)",
+                  "linear-gradient(90deg, #ffffff 0%, #00eeff 30%, #4400ff 50%, #ff00cc 70%, #ffffff 100%)",
                 backgroundSize: "200% 100%",
                 WebkitBackgroundClip: "text",
                 WebkitTextFillColor: "transparent",
                 backgroundClip: "text",
                 filter:
-                  "drop-shadow(0 0 18px rgba(255,0,102,0.5)) drop-shadow(0 4px 8px rgba(0,0,0,0.9))",
-                animation: "chrome-shimmer 4s linear infinite",
+                  "drop-shadow(0 0 16px rgba(0,238,255,0.6)) drop-shadow(0 4px 6px rgba(0,0,0,0.9))",
+                animation: "chrome-shimmer 2.5s ease-in-out infinite alternate",
               } as React.CSSProperties
             }
           >
@@ -269,15 +266,12 @@ export default function HomeScreen() {
               color: "rgba(0,238,255,0.45)",
             }}
           >
-            USE ARROW KEYS // TAP ZONES
+            USE ARROW KEYS or TAP ZONES
           </p>
         </div>
 
-        {/* Rainbow rule */}
-        <div className="rainbow-rule w-4/5 max-w-lg mt-4 mb-2" />
-
-        {/* Decorative stars below title */}
-        <StarBurst count={5} />
+        {/* Sleek scanner rule below title */}
+        <div className="rainbow-rule w-3/5 max-w-sm mt-4 mb-8 opacity-70" />
 
         {/* Custom Song (YouTube) */}
         <div className="mt-8 w-full max-w-md">
@@ -394,35 +388,6 @@ function isValidYouTubeUrl(url: string): boolean {
 
 // -- Sub-components -----------------------------------------------------------
 
-const STAR_COLORS = [
-  "#ff0066",
-  "#ffd700",
-  "#00eeff",
-  "#66ff00",
-  "#ff6600",
-  "#ff00cc",
-];
-
-function StarBurst({ count = 6 }: { count?: number }) {
-  return (
-    <div className="flex justify-center gap-3" style={{ fontSize: "0.7rem" }}>
-      {Array.from({ length: count }, (_, i) => (
-        <span
-          key={i}
-          className="ddr-star"
-          style={{
-            color: STAR_COLORS[i % STAR_COLORS.length],
-            animationDelay: `${i * 0.35}s`,
-            textShadow: "0 0 8px currentColor",
-          }}
-        >
-          &#9733;
-        </span>
-      ))}
-    </div>
-  );
-}
-
 function SectionLabel({ text, color }: { text: string; color: string }) {
   return (
     <p
@@ -463,9 +428,6 @@ function SongCard({
   const accentBtnHover = entry.isPremade
     ? "rgba(255,0,204,0.25)"
     : "rgba(0,238,255,0.25)";
-  const accentGlow = entry.isPremade
-    ? "rgba(255,0,204,0.4)"
-    : "rgba(0,238,255,0.4)";
   const accentBtnGlow = entry.isPremade
     ? "rgba(255,0,204,0.5)"
     : "rgba(0,238,255,0.5)";

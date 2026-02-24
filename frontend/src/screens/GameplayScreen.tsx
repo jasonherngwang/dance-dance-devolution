@@ -29,9 +29,7 @@ export default function GameplayScreen() {
       <GameCanvas chartData={activeSong} difficulty={activeDifficulty} />
 
       {/* In-game controls — bottom-right, unobtrusive */}
-      <div
-        className="absolute bottom-4 right-4 flex gap-2 z-10"
-      >
+      <div className="absolute bottom-4 right-4 flex gap-2 z-10">
         <button
           className="arcade-btn"
           onClick={() => navigate("/")}
@@ -42,7 +40,8 @@ export default function GameplayScreen() {
             color: "rgba(200,160,255,0.7)",
           }}
           onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.color = "#ff00cc";
+            (e.currentTarget as HTMLElement).style.color =
+              "var(--color-chrome-light)";
           }}
           onMouseLeave={(e) => {
             (e.currentTarget as HTMLElement).style.color =
@@ -62,7 +61,8 @@ export default function GameplayScreen() {
               color: "rgba(255,120,120,0.7)",
             }}
             onMouseEnter={(e) => {
-              (e.currentTarget as HTMLElement).style.color = "#ff0033";
+              (e.currentTarget as HTMLElement).style.color =
+                "var(--color-ddr-magenta)";
             }}
             onMouseLeave={(e) => {
               (e.currentTarget as HTMLElement).style.color =

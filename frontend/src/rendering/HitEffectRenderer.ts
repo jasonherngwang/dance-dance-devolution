@@ -11,6 +11,7 @@ const PARTICLE_POOL = 400;
 const MISS_X_POOL = 8;
 const SHOCKWAVE_POOL = 12; // expanding ring bursts
 const FLASH_POOL = 8; // instant bright pop at hit point
+const BEAM_POOL = 12; // vertical laser beams for high combos
 
 // ---------------------------------------------------------------------------
 // Hype level particle multipliers: 0=1×, 1=1.4×, 2=1.8×, 3=2.5×
@@ -22,8 +23,8 @@ const HYPE_PARTICLE_MULT = [1.0, 1.4, 1.8, 2.5] as const;
 // Color palettes (additive blending: color intensity encodes brightness)
 // ---------------------------------------------------------------------------
 
-const PERFECT_COLORS = [0xffdd00, 0xffffff, 0xff9900, 0xffffaa, 0xffffff]; // gold/yellow — classic DDR Perfect
-const GREAT_COLORS = [0x00ee44, 0x44ff88, 0x00aa33, 0xaaffcc, 0xffffff]; // green — classic DDR Great
+const PERFECT_COLORS = [0xff007f, 0x00ffff, 0xffcc00, 0x0044ff, 0xffffff]; // 2000s PS2 Perfect (Pink/Cyan/Gold)
+const GREAT_COLORS = [0xaaff00, 0x00ffff, 0x00aa33, 0xaaffcc, 0xffffff]; // 2000s PS2 Great (Lime/Cyan)
 
 // ---------------------------------------------------------------------------
 // Internal state shapes
@@ -64,6 +65,14 @@ interface PopFlash {
   peakOpacity: number;
 }
 
+interface Beam {
+  mesh: THREE.Mesh;
+  active: boolean;
+  life: number;
+  maxLife: number;
+  peakOpacity: number;
+}
+
 // ---------------------------------------------------------------------------
 // Exported result type for camera shake
 // ---------------------------------------------------------------------------
@@ -94,6 +103,9 @@ export class HitEffectRenderer {
 
   // Pop flash pool
   private readonly popFlashes: PopFlash[];
+
+  // Beam pool
+  private readonly beams: Beam[];
 
   // Camera shake state
   private shakeFrames = 0;
@@ -215,6 +227,34 @@ export class HitEffectRenderer {
         peakOpacity: 0,
       });
     }
+
+    // -------------------------------------------------------------------------
+    // Beam pool — vertical laser beams for high combos
+    // -------------------------------------------------------------------------
+    const beamGeo = new THREE.PlaneGeometry(0.8, 40);
+    // Move origin to bottom of the beam so it shoots upward
+    beamGeo.translate(0, 20, 0);
+    this.beams = [];
+    for (let i = 0; i < BEAM_POOL; i++) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(beamGeo, mat);
+      mesh.visible = false;
+      mesh.position.z = 0.05; // Slightly behind flashes
+      scene.add(mesh);
+      this.beams.push({
+        mesh,
+        active: false,
+        life: 0,
+        maxLife: 0,
+        peakOpacity: 0,
+      });
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -241,6 +281,7 @@ export class HitEffectRenderer {
     if (this.shockwaves[0]) showTemp(this.shockwaves[0].mesh);
     if (this.popFlashes[0]) showTemp(this.popFlashes[0].mesh);
     if (this.missXPool[0]) showTemp(this.missXPool[0].xs);
+    if (this.beams[0]) showTemp(this.beams[0].mesh);
 
     // Hide after a few animation frames — enough for pipeline compilation.
     setTimeout(() => {
@@ -266,28 +307,37 @@ export class HitEffectRenderer {
     const dirColor = DIRECTION_COLORS[direction].getHex();
 
     if (judgment === "perfect") {
-      const base = 180 + Math.floor(Math.random() * 41); // 180–220
+      const base = 250 + Math.floor(Math.random() * 51); // increased base particles 250-300
       const count = Math.min(Math.round(base * mult), PARTICLE_POOL);
-      this.spawnBurst(x, y, count, [...PERFECT_COLORS, dirColor], 8.0, 0.65);
-      this.spawnShockwave(x, y, dirColor, 0.28, 1.0); // fast inner ring
-      this.spawnShockwave(x, y, 0xffffff, 0.38, 0.85); // slower outer ring
-      this.spawnShockwave(x, y, dirColor, 0.5, 0.65); // trailing ring
-      this.spawnPopFlash(x, y, dirColor, 0.1, 0.85);
-      this.shakeFrames = 4;
-      this.shakeIntensity = 0.1;
+      this.spawnBurst(x, y, count, [...PERFECT_COLORS, dirColor], 9.0, 0.7);
+      this.spawnShockwave(x, y, dirColor, 0.3, 1.0); // fast inner ring
+      this.spawnShockwave(x, y, 0xffffff, 0.4, 0.9); // slower outer ring
+      this.spawnShockwave(x, y, dirColor, 0.55, 0.7); // trailing ring
+      this.spawnPopFlash(x, y, dirColor, 0.12, 0.9);
+
+      // Add beams for high hype levels
+      if (this._hypeLevel >= 2) {
+        this.spawnBeam(x, -5, dirColor, 0.3, 0.8);
+      }
+      if (this._hypeLevel >= 3) {
+        this.spawnBeam(x, -5, 0xffffff, 0.2, 1.0); // Extra bright core beam
+      }
+
+      this.shakeFrames = 2 + this._hypeLevel * 1;
+      this.shakeIntensity = 0.05 + this._hypeLevel * 0.015;
     } else if (judgment === "great") {
-      const count = Math.min(Math.round(90 * mult), PARTICLE_POOL);
-      this.spawnBurst(x, y, count, [...GREAT_COLORS, dirColor], 6.0, 0.5);
-      this.spawnShockwave(x, y, dirColor, 0.25, 0.8);
-      this.spawnShockwave(x, y, 0xffffff, 0.36, 0.6);
-      this.spawnPopFlash(x, y, dirColor, 0.09, 0.55);
-      this.shakeFrames = 2;
-      this.shakeIntensity = 0.05;
+      const count = Math.min(Math.round(120 * mult), PARTICLE_POOL);
+      this.spawnBurst(x, y, count, [...GREAT_COLORS, dirColor], 7.0, 0.55);
+      this.spawnShockwave(x, y, dirColor, 0.28, 0.85);
+      this.spawnShockwave(x, y, 0xffffff, 0.38, 0.65);
+      this.spawnPopFlash(x, y, dirColor, 0.1, 0.6);
+      this.shakeFrames = 2 + this._hypeLevel;
+      this.shakeIntensity = 0.03 + this._hypeLevel * 0.01;
     } else {
       // miss
       this.spawnMissX(x, y);
-      this.shakeFrames = 6;
-      this.shakeIntensity = 0.2;
+      this.shakeFrames = 3;
+      this.shakeIntensity = 0.08;
     }
   }
 
@@ -366,10 +416,26 @@ export class HitEffectRenderer {
       } else {
         const t = pf.life / pf.maxLife; // 1 → 0
         // Expand quickly while fading
-        const scale = 0.4 + (1 - t) * 1.2;
+        const scale = 0.4 + (1 - t) * 1.5; // expand a bit more
         pf.mesh.scale.setScalar(scale);
         (pf.mesh.material as THREE.MeshBasicMaterial).opacity =
           t * t * pf.peakOpacity;
+      }
+    }
+
+    // Animate beams
+    for (const b of this.beams) {
+      if (!b.active) continue;
+      b.life -= dt;
+      if (b.life <= 0) {
+        b.active = false;
+        b.mesh.visible = false;
+      } else {
+        const t = b.life / b.maxLife; // 1 -> 0
+        // Beams shrink horizontally as they fade out
+        b.mesh.scale.set(t, 1, 1);
+        (b.mesh.material as THREE.MeshBasicMaterial).opacity =
+          t * b.peakOpacity;
       }
     }
 
@@ -421,6 +487,10 @@ export class HitEffectRenderer {
     for (const pf of this.popFlashes) {
       (pf.mesh.material as THREE.Material).dispose();
       this.scene.remove(pf.mesh);
+    }
+    for (const b of this.beams) {
+      (b.mesh.material as THREE.Material).dispose();
+      this.scene.remove(b.mesh);
     }
   }
 
@@ -500,6 +570,26 @@ export class HitEffectRenderer {
     (pf.mesh.material as THREE.MeshBasicMaterial).color.setHex(colorHex);
     (pf.mesh.material as THREE.MeshBasicMaterial).opacity = peakOpacity;
     pf.mesh.visible = true;
+  }
+
+  private spawnBeam(
+    x: number,
+    y: number,
+    colorHex: number,
+    maxLife: number,
+    peakOpacity: number,
+  ): void {
+    const b = this.beams.find((beam) => !beam.active);
+    if (!b) return;
+    b.active = true;
+    b.maxLife = maxLife;
+    b.life = maxLife;
+    b.peakOpacity = peakOpacity;
+    b.mesh.position.set(x, y, 0.05); // Set origin bottom
+    b.mesh.scale.set(1, 1, 1);
+    (b.mesh.material as THREE.MeshBasicMaterial).color.setHex(colorHex);
+    (b.mesh.material as THREE.MeshBasicMaterial).opacity = peakOpacity;
+    b.mesh.visible = true;
   }
 
   private spawnMissX(x: number, y: number): void {

@@ -303,15 +303,15 @@ export default function LoadingScreen() {
             fontFamily: "'Press Start 2P', monospace",
             fontSize: "clamp(0.9rem, 3vw, 1.5rem)",
             letterSpacing: "0.1em",
-            color: "#ff6600",
-            textShadow: "0 0 18px rgba(255,102,0,0.7)",
+            color: "var(--color-ddr-cyan)",
+            textShadow: "0 0 18px rgba(0,255,255,0.7)",
           }}
         >
           ANALYZING
         </h1>
 
-        {/* Rainbow divider */}
-        <div className="rainbow-rule w-3/5 max-w-xs mt-3" />
+        {/* Sleek scanner rule */}
+        <div className="rainbow-rule w-3/5 max-w-xs mt-3 opacity-70" />
 
         {/* URL display */}
         {ytUrl && (
@@ -497,8 +497,8 @@ export default function LoadingScreen() {
                         width: 12,
                         height: 12,
                         borderWidth: 2,
-                        borderColor: "rgba(255,102,0,0.2)",
-                        borderTopColor: "#ff6600",
+                        borderColor: "var(--color-chrome-dark)",
+                        borderTopColor: "var(--color-ddr-cyan)",
                       }}
                     />
                   )}
@@ -507,8 +507,8 @@ export default function LoadingScreen() {
                       fontFamily: "'Bungee', sans-serif",
                       fontSize: "0.65rem",
                       letterSpacing: "0.1em",
-                      color: "#ff6600",
-                      textShadow: "0 0 8px rgba(255,102,0,0.5)",
+                      color: "var(--color-ddr-cyan)",
+                      textShadow: "0 0 8px rgba(0,255,255,0.5)",
                     }}
                   >
                     {statusLabel[status] ?? "Processing..."}
@@ -541,12 +541,12 @@ export default function LoadingScreen() {
                     width: `${progress}%`,
                     background:
                       progress === 100
-                        ? "linear-gradient(90deg, #66ff00, #00eeff)"
-                        : "linear-gradient(90deg, #ff6600, #ffd700)",
+                        ? "linear-gradient(90deg, var(--color-ddr-cyan), var(--color-ddr-blue))"
+                        : "linear-gradient(90deg, var(--color-chrome-mid), var(--color-chrome-light))",
                     boxShadow:
                       progress === 100
-                        ? "0 0 12px rgba(102,255,0,0.6)"
-                        : "0 0 12px rgba(255,102,0,0.5)",
+                        ? "0 0 12px rgba(0,255,255,0.6)"
+                        : "0 0 12px rgba(255,255,255,0.3)",
                     transition: "width 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
                   }}
                 />
@@ -571,9 +571,11 @@ export default function LoadingScreen() {
             {(detectedTitle || detectedBpm) && (
               <div
                 className="mt-4 w-full px-4 py-3 flex items-center gap-4 chrome-frame"
-                style={{ background: "rgba(102,255,0,0.04)" }}
+                style={{ background: "rgba(0,255,255,0.04)" }}
               >
-                <div style={{ fontSize: "1.2rem", color: "#66ff00" }}>
+                <div
+                  style={{ fontSize: "1.2rem", color: "var(--color-ddr-cyan)" }}
+                >
                   &#9835;
                 </div>
                 <div className="flex-1 min-w-0">
@@ -595,7 +597,7 @@ export default function LoadingScreen() {
                       style={{
                         fontFamily: "'VT323', monospace",
                         fontSize: "1.1rem",
-                        color: "rgba(102,255,0,0.75)",
+                        color: "rgba(0,255,255,0.75)",
                         marginTop: 2,
                       }}
                     >
@@ -625,25 +627,25 @@ export default function LoadingScreen() {
                         fontFamily: "'Press Start 2P', monospace",
                         background:
                           state === "done"
-                            ? "rgba(102,255,0,0.18)"
+                            ? "rgba(0,255,255,0.18)"
                             : state === "active"
-                              ? "rgba(255,102,0,0.18)"
+                              ? "rgba(255,255,255,0.18)"
                               : "rgba(255,255,255,0.04)",
                         border:
                           state === "done"
-                            ? "1px solid rgba(102,255,0,0.5)"
+                            ? "1px solid rgba(0,255,255,0.5)"
                             : state === "active"
-                              ? "1px solid rgba(255,102,0,0.5)"
+                              ? "1px solid rgba(255,255,255,0.5)"
                               : "1px solid rgba(240,232,255,0.1)",
                         color:
                           state === "done"
-                            ? "#66ff00"
+                            ? "var(--color-ddr-cyan)"
                             : state === "active"
-                              ? "#ff6600"
+                              ? "var(--color-ddr-white)"
                               : "rgba(240,232,255,0.2)",
                         boxShadow:
                           state === "active"
-                            ? "0 0 8px rgba(255,102,0,0.35)"
+                            ? "0 0 8px rgba(255,255,255,0.35)"
                             : "none",
                       }}
                     >
@@ -661,13 +663,13 @@ export default function LoadingScreen() {
                         letterSpacing: "0.05em",
                         color:
                           state === "done"
-                            ? "rgba(102,255,0,0.8)"
+                            ? "rgba(0,255,255,0.8)"
                             : state === "active"
-                              ? "#ff6600"
+                              ? "var(--color-ddr-white)"
                               : "rgba(240,232,255,0.22)",
                         textShadow:
                           state === "active"
-                            ? "0 0 8px rgba(255,102,0,0.5)"
+                            ? "0 0 8px rgba(255,255,255,0.5)"
                             : "none",
                       }}
                     >
@@ -717,7 +719,7 @@ export default function LoadingScreen() {
                           fontFamily: "'Bungee', sans-serif",
                           fontSize: "0.6rem",
                           letterSpacing: "0.08em",
-                          color: "rgba(255,102,0,0.8)",
+                          color: "rgba(0,255,255,0.8)",
                           marginBottom: 4,
                         }}
                       >

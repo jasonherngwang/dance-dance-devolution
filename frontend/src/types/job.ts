@@ -12,6 +12,8 @@ export interface JobStatus {
   job_id: string;
   /** Primary status field from backend (maps to Python JobState enum). */
   state: JobStatusType;
+  /** Alias for state — included for robustness if backend field name changes. */
+  status?: JobStatusType;
   progress: number;       // 0-100
   message?: string;
   // Metadata populated during extraction stage

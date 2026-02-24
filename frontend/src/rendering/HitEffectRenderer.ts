@@ -467,34 +467,6 @@ export class HitEffectRenderer {
   }
 
   // ---------------------------------------------------------------------------
-  // Cleanup
-  // ---------------------------------------------------------------------------
-
-  dispose(): void {
-    (this.particleMesh.geometry as THREE.BufferGeometry).dispose();
-    (this.particleMesh.material as THREE.Material).dispose();
-    this.scene.remove(this.particleMesh);
-
-    this.xGeometry.dispose();
-    for (const mx of this.missXPool) {
-      (mx.xs.material as THREE.Material).dispose();
-      this.scene.remove(mx.xs);
-    }
-    for (const sw of this.shockwaves) {
-      (sw.mesh.material as THREE.Material).dispose();
-      this.scene.remove(sw.mesh);
-    }
-    for (const pf of this.popFlashes) {
-      (pf.mesh.material as THREE.Material).dispose();
-      this.scene.remove(pf.mesh);
-    }
-    for (const b of this.beams) {
-      (b.mesh.material as THREE.Material).dispose();
-      this.scene.remove(b.mesh);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
 
@@ -626,5 +598,46 @@ export class HitEffectRenderer {
       new THREE.Float32BufferAttribute(positions, 3),
     );
     return geo;
+  }
+
+  public dispose(): void {
+    // Dipose InstancedMesh
+    if (this.particleMesh) {
+      this.particleMesh.geometry.dispose();
+      (this.particleMesh.material as THREE.Material).dispose();
+      this.scene.remove(this.particleMesh);
+    }
+
+    // Dispose X Marks
+    this.missXPool.forEach((mx) => {
+      mx.xs.geometry.dispose();
+      if (Array.isArray(mx.xs.material)) {
+        mx.xs.material.forEach((mat) => mat.dispose());
+      } else {
+        mx.xs.material.dispose();
+      }
+      this.scene.remove(mx.xs);
+    });
+
+    // Dispose Shockwaves
+    this.shockwaves.forEach((sw) => {
+      sw.mesh.geometry.dispose();
+      (sw.mesh.material as THREE.Material).dispose();
+      this.scene.remove(sw.mesh);
+    });
+
+    // Dispose Flashes
+    this.popFlashes.forEach((pf) => {
+      pf.mesh.geometry.dispose();
+      (pf.mesh.material as THREE.Material).dispose();
+      this.scene.remove(pf.mesh);
+    });
+
+    // Dispose Beams
+    this.beams.forEach((b) => {
+      b.mesh.geometry.dispose();
+      (b.mesh.material as THREE.Material).dispose();
+      this.scene.remove(b.mesh);
+    });
   }
 }

@@ -117,6 +117,10 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
   const [ytBuffering, setYtBuffering] = useState(false);
   // True while a YouTube pre-roll ad is playing (gates GO! transition)
   const [ytAdPlaying, setYtAdPlaying] = useState(false);
+  // True when mobile needs a user gesture to start YouTube playback
+  const [mobileGestureNeeded, setMobileGestureNeeded] = useState(false);
+  // Closure that starts YouTube playback — called from the tap overlay's gesture handler
+  const mobileTapRef = useRef<(() => void) | null>(null);
 
   // Shared input handler ref so TouchInputZones can use the same callback
   const inputHandlerCallbackRef = useRef<
@@ -624,6 +628,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
     let countdownPhase: CountdownPhase = -1;
     let inputEnabled = !isRealGame; // demo mode: already enabled above
     let audioPrewarmed = false;
+    let mobileGestureRequested = false; // guards mobile YouTube gesture gate
 
     renderer.setAnimationLoop(() => {
       const now = performance.now();
@@ -660,7 +665,34 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
           // still playing, pause the timing engine and wait for it to finish.
           if (songTime >= 0 && ytPlayer?.isAdPlaying) {
             timingEngine.pause();
-          } else if (songTime >= 0) {
+          } else if (
+            songTime >= 0 &&
+            !mobileGestureRequested &&
+            isMobile &&
+            ytPlayer &&
+            !ytStarted &&
+            ytPlayer.isReady
+          ) {
+            // Mobile browsers require playVideo() in a user gesture call stack.
+            // Pause the game clock and show a "Tap to Start" overlay; the user's
+            // tap directly calls play() with the required gesture context.
+            mobileGestureRequested = true;
+            timingEngine.pause();
+            mobileTapRef.current = () => {
+              ytStarted = true;
+              ytPlayer!.play();
+              ytPlayer!.fadeIn(AUDIO_FADE_IN_MS);
+              timingEngine.setTimeSource(() => ytPlayer!.getCurrentTime());
+              timingEngine.play(0);
+              inputEnabled = true;
+              inputHandler.enable();
+              setTouchInputEnabled(true);
+              useGameStore.getState().startPlaying();
+              setMobileGestureNeeded(false);
+              mobileTapRef.current = null;
+            };
+            setMobileGestureNeeded(true);
+          } else if (songTime >= 0 && !mobileGestureRequested) {
             inputEnabled = true;
             inputHandler.enable();
             setTouchInputEnabled(true);
@@ -787,6 +819,7 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
 
     return () => {
       inputHandler.dispose();
+      mobileTapRef.current = null;
       audioPlayer?.dispose();
       ytPlayer?.dispose();
       // Clear the YouTube container so React Strict Mode's double-mount doesn't
@@ -803,7 +836,27 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
       postProcessing.dispose();
       renderer.setAnimationLoop(null);
       window.removeEventListener("resize", onResize);
-      renderer.dispose();
+
+      // Rigorous Scene Disposal
+      scene.traverse((object: any) => {
+        if (object.geometry) {
+          object.geometry.dispose();
+        }
+        if (object.material) {
+          if (Array.isArray(object.material)) {
+            object.material.forEach((mat: any) => mat.dispose?.());
+          } else {
+            object.material.dispose?.();
+          }
+        }
+      });
+
+      try {
+        renderer.dispose();
+      } catch (err) {
+        console.warn("Error while disposing WebGPURenderer:", err);
+      }
+
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
@@ -925,6 +978,37 @@ export function GameCanvas({ chartData, difficulty }: GameCanvasProps) {
             >
               GAME STARTS AFTER THE AD
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile gesture gate — YouTube requires playVideo() in a user tap */}
+      {mobileGestureNeeded && (
+        <div
+          className="absolute inset-0 flex items-center justify-center"
+          style={{ zIndex: 25 }}
+          onTouchStart={(e) => {
+            e.preventDefault();
+            mobileTapRef.current?.();
+          }}
+          onClick={() => mobileTapRef.current?.()}
+        >
+          <div
+            className="animate-pulse"
+            style={{
+              padding: "18px 36px",
+              background: "rgba(0,0,0,0.78)",
+              border: "1px solid rgba(0,238,255,0.6)",
+              borderRadius: "8px",
+              color: "rgba(0,238,255,0.95)",
+              fontFamily: 'Impact, "Arial Black", sans-serif',
+              fontSize: "1.4rem",
+              letterSpacing: "0.18em",
+              textShadow: "0 0 14px rgba(0,238,255,0.6)",
+              textAlign: "center",
+            }}
+          >
+            TAP TO START
           </div>
         </div>
       )}

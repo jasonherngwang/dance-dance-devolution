@@ -9,6 +9,7 @@ the service cleans up on any error internally.
 """
 
 import asyncio
+import os
 import re
 import shutil
 import tempfile
@@ -17,6 +18,9 @@ from pathlib import Path
 from typing import Optional
 
 import yt_dlp
+
+_cookie_path = os.getenv("YTDLP_COOKIE_FILE", "")
+COOKIE_FILE = Path(_cookie_path) if _cookie_path else None
 
 
 class ExtractionError(Exception):
@@ -76,7 +80,9 @@ def _extract_audio_sync(url: str) -> ExtractionResult:
         output_template = str(temp_dir / "%(id)s.%(ext)s")
 
         # ── Pre-flight: check duration before downloading anything ────────────
-        _QUIET_OPTS = {"quiet": True, "no_warnings": True}
+        _COOKIE_OPTS = {"cookiefile": str(COOKIE_FILE)} if COOKIE_FILE and COOKIE_FILE.exists() else {}
+        _JS_OPTS = {"js_runtimes": {"node": {}}, "remote_components": ["ejs:github"]}
+        _QUIET_OPTS = {"quiet": True, "no_warnings": True, **_COOKIE_OPTS, **_JS_OPTS}
         with yt_dlp.YoutubeDL(_QUIET_OPTS) as ydl_meta:
             meta = ydl_meta.extract_info(url, download=False)
         raw_duration = float(meta.get("duration") or 0)
@@ -92,6 +98,8 @@ def _extract_audio_sync(url: str) -> ExtractionResult:
             "outtmpl": output_template,
             "quiet": True,
             "no_warnings": True,
+            **_COOKIE_OPTS,
+            **_JS_OPTS,
             # Convert to WAV after download
             "postprocessors": [
                 {
@@ -140,12 +148,14 @@ def _extract_audio_sync(url: str) -> ExtractionResult:
     except yt_dlp.utils.DownloadError as exc:
         cleanup_temp_dir(temp_dir)
         msg = str(exc)
-        if "Video unavailable" in msg or "is not available" in msg:
-            raise ExtractionError(f"Video unavailable: {msg}") from exc
-        if "Private video" in msg:
-            raise ExtractionError("Video is private and cannot be downloaded") from exc
         if "Sign in" in msg or "age" in msg.lower():
             raise ExtractionError("Video requires sign-in or age verification") from exc
+        if "Private video" in msg:
+            raise ExtractionError("Video is private and cannot be downloaded") from exc
+        if "Requested format is not available" in msg:
+            raise ExtractionError("No compatible audio stream found for this video") from exc
+        if "Video unavailable" in msg or "is not available" in msg:
+            raise ExtractionError("Video unavailable or restricted in this region") from exc
         raise ExtractionError(f"Download failed: {msg}") from exc
 
     except ExtractionError:

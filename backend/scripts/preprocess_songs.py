@@ -97,6 +97,23 @@ def analyze_song(client: httpx.Client, url: str, title: str, index: int, total: 
     return "UNKNOWN"
 
 
+def mark_premade_in_db(video_ids: set[str]) -> int:
+    """Mark all given video_ids as is_premade=1. Returns count updated."""
+    if not DB_PATH.exists() or not video_ids:
+        return 0
+    conn = sqlite3.connect(str(DB_PATH))
+    try:
+        placeholders = ",".join("?" for _ in video_ids)
+        conn.execute(
+            f"UPDATE charts SET is_premade = 1 WHERE video_id IN ({placeholders})",
+            list(video_ids),
+        )
+        conn.commit()
+        return conn.total_changes
+    finally:
+        conn.close()
+
+
 def remove_stale_from_db(csv_video_ids: set[str]) -> int:
     """Remove DB entries whose video_id is not in the CSV. Returns count removed."""
     if not DB_PATH.exists():
@@ -206,7 +223,12 @@ def main():
             else:
                 failed += 1
 
-    # Step 3: Generate premadeSongs.ts
+    # Step 3: Mark all CSV songs as premade in the DB
+    print("\n--- Marking premade songs in DB ---")
+    updated = mark_premade_in_db(csv_video_ids)
+    print(f"Marked {updated} songs as premade")
+
+    # Step 4: Generate premadeSongs.ts
     print("\n--- Generating premadeSongs.ts ---")
     generate_premade_ts(songs)
 

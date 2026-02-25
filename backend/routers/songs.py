@@ -1,7 +1,7 @@
 """
-GET /api/songs — return all globally analyzed songs from the SQLite cache,
-newest first. Used by the frontend to populate the "Recently Played" section
-with songs other users have generated.
+GET /api/songs — return premade songs from the SQLite cache, newest first.
+User-analyzed custom songs are cached server-side for performance but are not
+returned here; they surface via localStorage on the submitting user's device.
 """
 
 from fastapi import APIRouter
@@ -12,4 +12,4 @@ router = APIRouter()
 
 @router.get("/songs")
 async def get_songs() -> list[dict]:
-    return chart_cache.list_all(limit=200)
+    return chart_cache.list_all(limit=200, premade_only=True)

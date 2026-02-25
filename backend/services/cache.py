@@ -4,7 +4,7 @@ Stores generated ChartData keyed by YouTube video_id so the same video
 is never processed twice.
 
 Schema:
-  charts(video_id TEXT PRIMARY KEY, chart_json TEXT, created_at INTEGER)
+  charts(video_id TEXT PRIMARY KEY, chart_json TEXT, created_at INTEGER, is_premade INTEGER)
 """
 
 import json
@@ -26,10 +26,16 @@ def _get_conn() -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS charts (
             video_id   TEXT PRIMARY KEY,
             chart_json TEXT NOT NULL,
-            created_at INTEGER NOT NULL
+            created_at INTEGER NOT NULL,
+            is_premade INTEGER NOT NULL DEFAULT 0
         )
         """
     )
+    # Migration: add is_premade to existing DBs that predate this column
+    try:
+        conn.execute("ALTER TABLE charts ADD COLUMN is_premade INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass  # column already exists
     conn.commit()
     return conn
 
@@ -47,12 +53,12 @@ class ChartCache:
         finally:
             conn.close()
 
-    def save(self, video_id: str, chart: ChartData) -> None:
+    def save(self, video_id: str, chart: ChartData, is_premade: bool = False) -> None:
         conn = _get_conn()
         try:
             conn.execute(
-                "INSERT OR REPLACE INTO charts (video_id, chart_json, created_at) VALUES (?, ?, ?)",
-                (video_id, chart.model_dump_json(), int(time.time())),
+                "INSERT OR REPLACE INTO charts (video_id, chart_json, created_at, is_premade) VALUES (?, ?, ?, ?)",
+                (video_id, chart.model_dump_json(), int(time.time()), int(is_premade)),
             )
             conn.commit()
         finally:
@@ -68,14 +74,20 @@ class ChartCache:
         finally:
             conn.close()
 
-    def list_all(self, limit: int = 50) -> list[dict]:
-        """Return lightweight metadata for all cached charts, newest first."""
+    def list_all(self, limit: int = 50, premade_only: bool = False) -> list[dict]:
+        """Return lightweight metadata for cached charts, newest first."""
         conn = _get_conn()
         try:
-            rows = conn.execute(
-                "SELECT video_id, chart_json, created_at FROM charts ORDER BY created_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            if premade_only:
+                rows = conn.execute(
+                    "SELECT video_id, chart_json, created_at FROM charts WHERE is_premade = 1 ORDER BY created_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT video_id, chart_json, created_at FROM charts ORDER BY created_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
             result = []
             for video_id, chart_json, created_at in rows:
                 try:

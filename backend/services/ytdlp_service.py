@@ -81,7 +81,10 @@ def _extract_audio_sync(url: str) -> ExtractionResult:
 
         # ── Pre-flight: check duration before downloading anything ────────────
         _COOKIE_OPTS = {"cookiefile": str(COOKIE_FILE)} if COOKIE_FILE and COOKIE_FILE.exists() else {}
-        _JS_OPTS = {"js_runtimes": {"node": {}}, "remote_components": ["ejs:github"]}
+        # Deno runs yt-dlp's EJS challenge solver (see Dockerfile). Without a
+        # supported JS runtime YouTube exposes no audio formats, and downloads
+        # fail with "n challenge solving failed" → HTTP 403 / format-not-available.
+        _JS_OPTS = {"js_runtimes": {"deno": {}}, "remote_components": ["ejs:github"]}
         _QUIET_OPTS = {"quiet": True, "no_warnings": True, **_COOKIE_OPTS, **_JS_OPTS}
         with yt_dlp.YoutubeDL(_QUIET_OPTS) as ydl_meta:
             meta = ydl_meta.extract_info(url, download=False)
